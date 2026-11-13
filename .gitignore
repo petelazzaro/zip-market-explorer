@@ -1,0 +1,13 @@
+# Raw realtor.com downloads: too large for GitHub, never committed
+raw/
+
+# Built data: published to the gh-pages branch by refresh.ps1, not tracked on main
+site/d/
+
+# Local-only files
+.claude/
+Claude.md.md
+CLAUDE.md
+Zip_Market_Explorer_Prototype_*.html
+__pycache__/
+*.pyc

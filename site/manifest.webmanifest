@@ -1,0 +1,13 @@
+{
+  "name": "Zip Market Explorer",
+  "short_name": "Zip Market",
+  "description": "realtor.com listing-market data for every US zip, county, metro and state.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a1324",
+  "theme_color": "#0a1324",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
