@@ -71,6 +71,7 @@ try {
     Git-Ok init -q -b gh-pages
     Git-Ok config user.name $name
     Git-Ok config user.email $email
+    Git-Ok config core.autocrlf false
     Git-Ok add -A
     Git-Ok commit -q -m $msg
     Write-Host "Uploading about $sizeMB MB - this can take a few minutes..."
