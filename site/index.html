@@ -111,6 +111,12 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
 .notes p{margin:0 0 8px}
 .notes b{color:var(--ink2)}
 .loading{color:var(--muted);padding:30px;text-align:center}
+.mdh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mdh h2{margin:0}
+.lvl{font-size:11px;font-weight:700;letter-spacing:.1em;padding:4px 10px;border-radius:999px;color:var(--teal);border:1px solid rgba(44,197,180,.45);background:rgba(44,197,180,.1)}
+.mdn{color:var(--ink);font-weight:700}
+.mdnote{font-size:12.5px;color:var(--ink2);margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.mdnote.w{color:var(--warn);border-color:rgba(224,166,58,.35)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#13223f;border:1px solid var(--teal);padding:10px 16px;border-radius:10px;font-size:13px;display:none;z-index:50;max-width:calc(100% - 32px)}
 </style>
 </head>
@@ -388,6 +394,7 @@ function render(){
     '<div class="verdict"><span class="pill '+read.cls+'">'+read.label+'</span><span class="sub" style="margin:0">score '+(read.score > 0 ? '+' : '')+read.score+' of ±'+read.max+'</span></div>'+
     '<ul>'+read.items.map(x => '<li><span class="ic '+(x.s > 0 ? 'up' : x.s < 0 ? 'dn' : 'nt')+'">'+(x.s > 0 ? '▲' : x.s < 0 ? '▼' : '•')+'</span><span>'+x.t+'</span></li>').join('')+'</ul></div>';
   h += rankPanel(g) + '</div>';
+  h += '<div id="mdp"></div>';
 
   h += '<div class="sec"><h2>Trends</h2></div><div class="charts">';
   const defs = [
@@ -410,6 +417,103 @@ function render(){
   drawCharts(g, bg);
   drawTable(g);
   $('copy').onclick = () => copyCSV(g);
+  renderDistress(g);
+}
+
+// ---------- mortgage distress (CFPB) ----------
+let cfpbP = null, z2cP = null;
+function loadCFPB(){ return cfpbP || (cfpbP = getJSON('d/cfpb_delinquency.json').catch(e => { cfpbP = null; throw e; })); }
+function loadZ2C(){ return z2cP || (z2cP = getJSON('d/zip_to_county.json').catch(e => { z2cP = null; throw e; })); }
+function cfpbArr(rec, k){
+  if (!rec || !rec[k]) return null;
+  const key = '_'+k;
+  if (!rec[key]){ const sc = S.cfpb.scale; rec[key] = rec[k].split(',').map(v => v === '' ? null : (+v)/sc); }
+  return rec[key];
+}
+function countyLabel(fips, cf){
+  if (cf) return cf.n+', '+cf.st;
+  const r = S.meta.idx.find(x => x[0] === 'county' && x[1] === fips);
+  return r ? r[2] : 'County '+fips;
+}
+// Decide which CFPB series to show for a geography, plus its comparison lines.
+function distressContext(g, z2c){
+  const C_ = S.cfpb, us = {key:'us', name:'United States', rec:C_.us};
+  const stRec = st => st && C_.states[st] ? {key:'st-'+st, name:C_.states[st].n, rec:C_.states[st]} : null;
+  if (g.type === 'us') return {level:'NATIONAL', main:us, comps:[]};
+  if (g.type === 'state'){ const s = stRec(g.id); return s ? {level:'STATE-LEVEL', main:s, comps:[us]} : null; }
+  const st = stRec(g.st);
+  const fallback = reason => st ? {level:'STATE-LEVEL', main:st, comps:[us], fallback:reason} : null;
+  if (g.type === 'metro') return fallback('CFPB county data doesn\'t map cleanly onto a metro, so this shows '+(st ? st.name : 'the state')+'. Open one of its counties or zips for county-level detail.');
+  let fips = null, note = null;
+  if (g.type === 'county') fips = g.id;
+  if (g.type === 'zip'){
+    const m = z2c && z2c[g.id];
+    if (!m) return fallback('Zip '+g.id+' isn\'t in the Census 2020 zip-area (ZCTA) list — often a PO-box or single-building zip — so it can\'t be matched to a county.');
+    fips = m[0];
+    if (m[2] > 1) note = 'Zip '+g.id+' spans '+m[2]+' counties; '+countyLabel(fips, C_.counties[fips])+' holds '+m[1]+'% of its land area and is used here.';
+  }
+  const cf = C_.counties[fips];
+  if (!cf){
+    if (fips.startsWith('09')) return fallback('Connecticut replaced its counties with planning regions in 2022; the Census zip-to-county file still uses the old counties, so CFPB\'s Connecticut series can\'t be matched to a zip yet.');
+    return fallback('CFPB doesn\'t publish '+countyLabel(fips, null)+' (it only reports counties with at least 1,000 mortgages in its sample).');
+  }
+  return {level:'COUNTY-LEVEL', main:{key:'co-'+fips, name:countyLabel(fips, cf), rec:cf}, comps:[st, us].filter(Boolean), note};
+}
+async function renderDistress(g){
+  const box = $('mdp'); if (!box) return;
+  box.innerHTML = '<div class="card md" style="margin-bottom:14px"><h2>Mortgage Distress</h2><div class="sub">Loading CFPB data…</div></div>';
+  let z2c = null;
+  try {
+    S.cfpb = await loadCFPB();
+    if (g.type === 'zip') z2c = await loadZ2C();
+  } catch(e){ if (S.cur === g) box.innerHTML = '<div class="card md" style="margin-bottom:14px"><h2>Mortgage Distress</h2><div class="sub">Could not load CFPB data ('+esc(e.message)+').</div></div>'; return; }
+  if (S.cur !== g || !$('mdp')) return;
+  const ctx = distressContext(g, z2c);
+  S.md = ctx;
+  if (!ctx){ $('mdp').innerHTML = ''; return; }
+  const M = S.cfpb.months, li = M.length-1, N = S.N;
+  const m90 = cfpbArr(ctx.main.rec,'d90'), m30 = cfpbArr(ctx.main.rec,'d30');
+  const t90 = trailing(m90, N), t30 = trailing(m30, N);
+  const par = ctx.comps[0] || null, p90 = par ? cfpbArr(par.rec,'d90') : null, pt90 = p90 ? trailing(p90, N) : null;
+  const pp = v => !isNum(v) ? '–' : v.toFixed(1)+'%';
+  const dp = v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)+' pts';
+  const diff = (a, b) => isNum(a) && isNum(b) ? a-b : null;
+  const tile = (lab, val, rows) => '<div class="card kpi"><div class="lab">'+lab+'</div><div class="val">'+val+'</div>'+
+    rows.map(([l, v, c]) => '<div class="row"><span>'+l+'</span><span class="'+(c || '')+'">'+v+'</span></div>').join('')+'</div>';
+  const chg = diff(m90[li], m90[li-12]), chgT = diff(t90[li], t90[li-12]);
+  let h = '<div class="card md" style="margin-bottom:14px">'+
+    '<div class="mdh"><h2>Mortgage Distress</h2><span class="lvl">'+ctx.level+'</span></div>'+
+    '<div class="sub"><b class="mdn">'+esc(ctx.main.name)+'</b> · source: CFPB/NMDB · share of mortgages delinquent, monthly '+mlong(M[0])+' – '+mlong(M[li])+'</div>'+
+    (ctx.fallback ? '<div class="mdnote w">'+esc(ctx.fallback)+'</div>' : '')+
+    (ctx.note ? '<div class="mdnote">'+esc(ctx.note)+'</div>' : '')+
+    '<div class="kpis" style="margin:12px 0 10px">'+
+    tile('90+ days delinquent · '+mlong(M[li]), pp(m90[li]), [[N+'M trailing avg', pp(t90[li])], ['30–89 days', pp(m30[li])], ['30–89 days, '+N+'M avg', pp(t30[li])]])+
+    tile('90+ day change vs 12 months ago', dp(chg), [['From → to', pp(m90[li-12])+' → '+pp(m90[li])], [N+'M avg change', dp(chgT), cls(chgT,-1)], ['30–89 day change', dp(diff(m30[li], m30[li-12])), cls(diff(m30[li], m30[li-12]),-1)]])+
+    (par ? tile('90+ day spread vs '+esc(par.name), dp(diff(m90[li], p90[li])), [[esc(ctx.main.name.split(',')[0]), pp(m90[li])], [esc(par.name), pp(p90[li])], [N+'M avg spread', dp(diff(t90[li], pt90[li])), cls(diff(t90[li], pt90[li]),-1)]])
+         : tile('30–89 days delinquent · '+mlong(M[li]), pp(m30[li]), [[N+'M trailing avg', pp(t30[li])], ['12 months earlier', pp(m30[li-12])]]))+
+    '</div>'+
+    '<div class="legend" id="lg_c_md"></div><div class="box" style="position:relative;height:260px"><canvas id="c_md"></canvas></div>'+
+    '<div class="note" style="font-size:12px;color:var(--muted);margin-top:8px">Lines are '+N+'-month trailing averages; the window setting applies. Red = more distress. CFPB data lag realtor.com by several months.</div>'+
+    '</div>';
+  $('mdp').innerHTML = h;
+  drawDistressChart();
+}
+function drawDistressChart(){
+  const ctx = S.md; if (!ctx || !S.cfpb || !$('c_md')) return;
+  const M = S.cfpb.months, N = S.N, L = M.length, start = S.win ? Math.max(0, L - S.win) : 0;
+  const cut = a => a.slice(start), ds = [], lg = [];
+  const add = (rec, k, label, color, w, dash) => { const a = cfpbArr(rec, k); if (!a) return; ds.push({label, data:cut(trailing(a, N)), borderColor:color, backgroundColor:color, borderWidth:w, borderDash:dash || [], pointRadius:0, pointHoverRadius:4, tension:.25}); };
+  const short = n => n.split(',')[0];
+  add(ctx.main.rec, 'd90', short(ctx.main.name)+' 90+', C.s1, 2.75);
+  add(ctx.main.rec, 'd30', short(ctx.main.name)+' 30–89', C.s2, 2.75);
+  lg.push([C.s1, short(ctx.main.name)+' 90+ days'], [C.s2, short(ctx.main.name)+' 30–89 days']);
+  ctx.comps.forEach((c, i) => {
+    const dash = i === 0 ? [6,4] : [2,3], col90 = i === 0 ? C.s1+'bb' : C.ref, col30 = i === 0 ? C.s2+'bb' : C.ref;
+    add(c.rec, 'd90', short(c.name)+' 90+', col90, 1.5, dash);
+    add(c.rec, 'd30', short(c.name)+' 30–89', col30, 1.5, dash);
+    lg.push([i === 0 ? C.s1 : C.ref, short(c.name)+(i === 0 ? ' (dashed, both rates)' : ' (dotted, both rates)'), 1]);
+  });
+  mk('c_md', ds, v => v.toFixed(1)+'%', true, lg, null, cut(M).map(mlab));
 }
 
 function rankPanel(g){
@@ -557,6 +661,7 @@ function drawCharts(g, bg){
   }
   seasonal('c_sp', d.p, fmt.usd);
   seasonal('c_sa', d.al, fmt.num);
+  drawDistressChart();
 }
 
 function seasonal(id, arr, f){
@@ -624,13 +729,14 @@ function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'b
 function renderNotes(){
   const M = S.meta.months;
   $('notes').innerHTML =
-   '<p><b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   '<p><b>Version v02.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
    'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
    '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
    '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
    '<p><b>Market read</b> scores six signals with N-month trailing averages: days on market, price-reduced share and pending ratio vs the parent geography; active inventory, days on market and $/sq ft vs a year ago. Total of +2 or more = seller-leaning, −2 or less = buyer-leaning, otherwise balanced.</p>'+
    '<p><b>Colors on tiles</b>: green = the change points to a tighter / stronger market for sellers, red = softer. Shares change in percentage points. Median sq ft is not colored.</p>'+
    '<p><b>Percentile ranks</b> compare a zip or county with the others in its state for the latest month (100 = highest value, not necessarily "best"). For zips without a name in the source, the state is inferred from the first three digits.</p>'+
+   '<p><b>Mortgage Distress</b> shows the share of mortgages 30–89 days and 90+ days delinquent, from the CFPB Mortgage Performance Trends data (National Mortgage Database). It is <b>county-level</b>, not zip-level: each zip uses the county holding the largest share of its land area (Census 2020 zip-area-to-county file). CFPB only publishes counties with at least 1,000 sampled mortgages; elsewhere the panel says so and shows the state series. CFPB data are published with a lag of several months.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';
 }
 

@@ -27,6 +27,11 @@ Step 'Building data from raw\'
 & python build.py
 if ($LASTEXITCODE -ne 0) { Fail 'build.py reported a problem (see FAIL lines above). Nothing was published.' }
 
+# build.py clears site\d, so the Mortgage Distress (CFPB) layer is rebuilt every time.
+Step 'Building Mortgage Distress layer from raw\cfpb and raw\census'
+& python scripts\build_cfpb.py
+if ($LASTEXITCODE -ne 0) { Fail 'scripts\build_cfpb.py reported a problem (see FAIL lines above). Nothing was published.' }
+
 # ---- 2. sanity checks on the output
 Step 'Verifying output'
 $metaPath = Join-Path $root 'site\d\meta.json'
@@ -37,6 +42,9 @@ $label = $latest.Substring(0, 4) + '-' + $latest.Substring(4, 2)
 $zipShards = @(Get-ChildItem (Join-Path $root 'site\d\zip') -Filter *.json -ErrorAction SilentlyContinue).Count
 if ($zipShards -lt 90) { Fail "only $zipShards zip shards were built (expected ~99)" }
 if (-not $meta.hasUS) { Fail 'US data is missing - is RDC_Inventory_Core_Metrics_Country_History.csv in raw\?' }
+foreach ($f in 'cfpb_delinquency.json', 'zip_to_county.json') {
+    if (-not (Test-Path (Join-Path $root "site\d\$f"))) { Fail "site\d\$f is missing" }
+}
 $sizeMB = [math]::Round(((Get-ChildItem (Join-Path $root 'site') -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 1)
 if ($sizeMB -gt 900) { Fail "site\ is $sizeMB MB - too close to the 1 GB GitHub Pages limit" }
 if (Get-Command node -ErrorAction SilentlyContinue) {

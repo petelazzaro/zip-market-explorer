@@ -1,7 +1,7 @@
 // Zip Market Explorer service worker.
 // Network-first for everything so a monthly data refresh shows up immediately;
 // the cache is only a fallback for offline use or a flaky connection.
-const CACHE = 'zme-v1';
+const CACHE = 'zme-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'd/meta.json', 'd/states.json', 'd/us.json'];
 
 self.addEventListener('install', e => {

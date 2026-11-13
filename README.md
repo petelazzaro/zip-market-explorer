@@ -26,6 +26,21 @@ raw/*.csv  ──►  build.py  ──►  site/d/*.json  ──►  GitHub Page
 - The `raw/` folder is never committed (the zip file alone is about 840 MB).
 - The site data (about 210 MB) is published to the `gh-pages` branch, which is **replaced on every refresh**. Old monthly data never piles up in the repo's history. The `main` branch holds only the code.
 
+## Mortgage Distress layer (v02)
+
+A county-level panel with the share of mortgages 30–89 days and 90+ days delinquent, compared with the state and the US.
+
+- **Data:** CFPB Mortgage Performance Trends (National Mortgage Database). This build covers Jan 2008 – Mar 2026, published Nov 2026. CFPB publishes only counties with at least 1,000 mortgages in its sample (509 counties). Elsewhere the panel says so and shows the state series.
+- **Zip → county:** the Census 2020 ZCTA-to-county relationship file. Each zip uses the county with the largest land-area overlap, and the panel shows that overlap % when a zip spans several counties.
+- **Script:** `scripts/build_cfpb.py` reads `raw/cfpb/` and `raw/census/` and writes `site/d/cfpb_delinquency.json` and `site/d/zip_to_county.json`, with spot checks against the raw CSVs. `refresh.ps1` runs it automatically after `build.py`.
+- **Known gap:** Connecticut. CFPB uses CT's 2022 planning regions, but the Census 2020 file still uses the old counties, so CT zips show the state series.
+
+**When CFPB publishes new data (roughly quarterly):**
+1. Go to consumerfinance.gov → Mortgage Performance Trends → Download the data. Under "The most recent data", download the **States** and **Counties** CSVs for both "30–89 days" and "90 or more days" into `raw/cfpb/`. The build uses the newest `thru-YYYY-MM` files.
+2. Run `.\refresh.ps1` as usual.
+
+The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
+
 ## Monthly refresh
 
 1. In the realtor.com Data Library, download the five monthly **History** files into `raw/`, replacing the old ones:
@@ -52,6 +67,7 @@ raw/*.csv  ──►  build.py  ──►  site/d/*.json  ──►  GitHub Page
 
 ```powershell
 python build.py                                   # full build (~1 min); add --quick to skip zips
+python scripts/build_cfpb.py                      # Mortgage Distress layer (run after build.py)
 python -m http.server 8765 --directory site       # then open http://localhost:8765
 ```
 
