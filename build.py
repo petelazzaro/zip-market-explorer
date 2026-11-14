@@ -532,16 +532,21 @@ def main() -> int:
     enc = encode(me, "cbsa_code", months)
     me_titles = {k: me_names.get(k) or f"Metro {k}" for k in enc}
     rs_cov["metro"] = add_redfin(enc, redfin_for("metro", lambda d: rf.map_metros(d, me_titles, warnings)), months)
-    for code, city in rf.SPLIT_METROS.items():
+    for code, (city, _) in rf.SPLIT_METROS.items():
         if code in me_titles and not me_titles[code].startswith(city):
             problems.append(f"SPLIT_METROS {code} expected '{city}...', realtor.com title is '{me_titles[code]}'")
+    rs_div = {}    # metro code -> Redfin division whose figures it shows
     shards: dict[str, dict] = {}
     for k, d in enc.items():
         n = me_names.get(k) or f"Metro {k}"
         stt = state_of(n)
         rec = {"n": n, "st": stt if stt in valid_states else None, "d": pack(d)}
         if k in rf.SPLIT_METROS:
-            rec["rsx"] = "div"    # Redfin reports this metro only by its divisions
+            region = rs_region.get("metro", {}).get(k)
+            if region and any(x.startswith("rs_") for x in d):
+                rec["rsdiv"] = rs_div[k] = rf.division_label(region)   # e.g. 'New York, NY division'
+            else:
+                rec["rsx"] = "div"    # division not found: no closed sales for this metro
         if k in hr.index:
             try:
                 rec["hr"] = int(float(hr[k]))
@@ -635,7 +640,7 @@ def main() -> int:
         "months": months,
         "scale": {**SCALE, **rf.RS_SCALE},
         "delta": True,   # every series in the place files is delta-encoded (see pack())
-        "rs": {"places": rs_cov, "split": sorted(rf.SPLIT_METROS), "zipRolling": True,
+        "rs": {"places": rs_cov, "split": sorted(rf.SPLIT_METROS), "div": rs_div, "zipRolling": True,
                "first": (int(rs_frames["us"]["month"].min()) if rs_frames.get("us") is not None else None),
                "last": (int(rs_frames["us"]["month"].max()) if rs_frames.get("us") is not None else None)},
         "rankKeys": RANK_KEYS,

@@ -12,8 +12,8 @@ monthly; one file per geography, a level may be split into several date-range fi
 
 Geography matching (stage 1 profile, Nov 2026): zips by number; states by name (DC is "Columbia");
 counties by normalized name + state with a fixed table of exceptions; metros by principal city +
-state. Redfin splits the 11 CBSAs that have metropolitan divisions into those divisions, so those
-metros get no Redfin series (their counties and zips do).
+state. Redfin splits the 11 CBSAs that have metropolitan divisions into those divisions; each of
+those metros uses the division containing its principal city, recorded as rsdiv and labelled in the app.
 """
 from __future__ import annotations
 
@@ -43,12 +43,27 @@ RS_SCR = {k: RS_ENC[k] for k in ("rs_p", "rs_n", "rs_mos", "rs_sl")}   # screene
 
 FILES = {"us": "country", "state": "states", "metro": "metros", "county": "counties", "zip": "zips"}
 
-# CBSAs with metropolitan divisions (OMB 2023). Redfin reports their divisions, not the whole metro.
+# CBSAs with metropolitan divisions (OMB 2023). Redfin reports their divisions, not the whole metro,
+# so each is mapped to the division containing its principal city (never an average of divisions),
+# and the app labels the figures "Closed sales: <division>".  code -> (principal city, Redfin region)
 SPLIT_METROS = {
-    "14460": "Boston", "16980": "Chicago", "19100": "Dallas", "19820": "Detroit", "31080": "Los Angeles",
-    "33100": "Miami", "35620": "New York", "37980": "Philadelphia", "41860": "San Francisco",
-    "42660": "Seattle", "47900": "Washington",
+    "14460": ("Boston", "Boston, MA metro area"),
+    "16980": ("Chicago", "Chicago, IL metro area"),
+    "19100": ("Dallas", "Dallas, TX metro area"),
+    "19820": ("Detroit", "Detroit, MI metro area"),
+    "31080": ("Los Angeles", "Los Angeles, CA metro area"),
+    "33100": ("Miami", "Miami, FL metro area"),
+    "35620": ("New York", "New York, NY metro area"),
+    "37980": ("Philadelphia", "Philadelphia, PA metro area"),
+    "41860": ("San Francisco", "San Francisco, CA metro area"),
+    "42660": ("Seattle", "Seattle, WA metro area"),
+    "47900": ("Washington", "Washington, DC metro area"),
 }
+
+
+def division_label(region: str) -> str:
+    """'New York, NY metro area' -> 'New York, NY division'."""
+    return re.sub(r"\s+metro area$", "", region, flags=re.I) + " division"
 
 # Redfin county name -> county FIPS, where names alone don't line up (stage 1 misses).
 COUNTY_FIPS = {
@@ -193,8 +208,16 @@ def map_metros(df: pd.DataFrame, metro_names: dict[str, str], warnings: list) ->
                 anyc.setdefault((c, st2), []).append(code)
     out, used = {}, set()
     names = [n for n in df["REGION NAME"].unique()]
+    for code, (_, region) in SPLIT_METROS.items():     # principal-city division for split metros
+        if code in metro_names and region in names:
+            out[region] = code
+            used.add(code)
+        elif code in metro_names:
+            warnings.append(f"Redfin division '{region}' not found - metro {code} gets no closed sales")
     keyed = {}
     for n in names:
+        if n in out:
+            continue
         p, st = split_st(re.sub(r"\s+metro area$", "", n, flags=re.I))
         cities = _metro_cities(p)
         if cities:

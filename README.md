@@ -67,9 +67,9 @@ Recorded sales from **Redfin, a national real estate brokerage** (Redfin Data Ce
 - **Gaps:**
   - **Louisiana:** Redfin's series are all blank.
   - **Connecticut counties:** realtor.com uses the 2022 planning regions; Redfin uses the old counties.
-  - **The 11 largest metros:** Boston, Chicago, Dallas, Detroit, Los Angeles, Miami, New York, Philadelphia, San Francisco, Seattle and Washington. Redfin reports them only by metro division, so they show "No closed-sales data" (their counties and zips have it).
+  - **The 11 largest metros:** Boston, Chicago, Dallas, Detroit, Los Angeles, Miami, New York, Philadelphia, San Francisco, Seattle and Washington. Redfin reports them only by metro division. Each one shows the division containing its principal city (e.g. "Closed sales: Los Angeles, CA division"). The division is recorded as `rsdiv` in the metro record and in `meta.rs.div`. Divisions are never averaged together.
   - **Small rural places** Redfin doesn't cover.
-  - Coverage of places with recent listings (Oct 2026): states 50/51, counties 97%, zips 95%, metros 92%. Sale prices aren't public record in some non-disclosure states (e.g. TX, UT), so coverage there is thinner.
+  - Coverage of places with recent listings (Oct 2026): states 50/51, counties 97.1%, zips 94.8%, metros 93.4%. Every top-100 metro matches except New Orleans and Baton Rouge (Louisiana). Sale prices aren't public record in some non-disclosure states (e.g. TX, UT), so coverage there is thinner.
 - **Explorer:**
   - A "Closed sales (Redfin)" section with six tiles (sale price, homes sold, months of supply, sale-to-list, % sold above list, days to sale). Each tile also shows the parent state's trailing average.
   - Four charts: list vs sale price, sale-to-list and % above list, homes sold vs pending, and months of supply with seller/balanced/buyer bands.
