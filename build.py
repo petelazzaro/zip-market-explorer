@@ -2,8 +2,9 @@
 Zip Market Explorer - build script.
 
 Reads the realtor.com Inventory Core Metrics *History* CSVs in raw/ (listings) and the Redfin
-Housing Market Tracker CSVs in raw/Redfin/ (closed sales, see redfin.py) and writes compact JSON
-for the static site into site/d/.
+Housing Market Tracker CSVs in raw/Redfin/ (closed sales, see redfin.py) and the Zillow Research
+ZHVI/ZORI CSVs in raw/zillow/ (home values and rents, see zillow.py) and writes compact JSON for the
+static site into site/d/.
 
     python build.py            # full build + validation report
     python build.py --quick    # skip the zip file (fast iteration on the small files)
@@ -27,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 import redfin as rf
+import zillow as zl
 
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "raw"
@@ -280,7 +282,7 @@ def unpack(d: dict[str, str]) -> dict[str, str]:
 
 def write_screener(level: str, df: pd.DataFrame, key_col: str, months: list[int],
                    names: dict[str, tuple[str, str | None]], sizes: dict[str, int],
-                   rs_df: pd.DataFrame | None = None) -> dict:
+                   rs_df: pd.DataFrame | None = None, zl_df: pd.DataFrame | None = None) -> dict:
     """site/d/scr/<level>.json = {start, keys, rows: {id: [name, state, delta-encoded 'v,,v' per key]}}.
     start = index into meta.months of the first month in each series."""
     start = max(0, len(months) - SCR_MONTHS)
@@ -291,6 +293,8 @@ def write_screener(level: str, df: pd.DataFrame, key_col: str, months: list[int]
     enc = encode(sub[sub[key_col].isin(alive)], key_col, window, SCR_METRICS)
     if rs_df is not None:
         add_redfin(enc, rs_df[rs_df["month"].isin(window) & rs_df["_id"].isin(alive)], window, rf.RS_SCR)
+    if zl_df is not None:
+        add_redfin(enc, zl_df[zl_df["month"].isin(window) & zl_df["_id"].isin(alive)], window, zl.ZL_ENC)
     keys = list(SCR_METRICS)
     rows = {k: [names[k][0], names[k][1] or ""] + [delta_enc(enc[k].get(s, "")) for s in keys] for k in sorted(enc)}
     name = f"scr/{level}.json"
@@ -301,6 +305,12 @@ def write_screener(level: str, df: pd.DataFrame, key_col: str, months: list[int]
                if any(enc[k].get(s) for s in rs_keys)}
     sizes[f"scr/{level}_rs.json"] = write_json(OUT / "scr" / f"{level}_rs.json",
                                                {"start": start, "keys": rs_keys, "rows": rs_rows})
+    # Zillow values and rents, also in their own file.
+    zl_keys = list(zl.ZL_ENC)
+    zl_rows = {k: [delta_enc(enc[k].get(s, "")) for s in zl_keys] for k in sorted(enc)
+               if any(enc[k].get(s) for s in zl_keys)}
+    sizes[f"scr/{level}_zl.json"] = write_json(OUT / "scr" / f"{level}_zl.json",
+                                               {"start": start, "keys": zl_keys, "rows": zl_rows})
     gz = len(gzip.compress((OUT / name).read_bytes(), 6))
     log(f"  screener {level}: {len(rows):,} places (of {df[key_col].nunique():,}), "
         f"{mb(sizes[name])} ({mb(gz)} gzipped over the wire)")
@@ -442,6 +452,35 @@ def rs_spot_check(level: str, our_id: str, region: str | None, rec_of, months: l
         log(f"    Redfin {level} {our_id} '{region}' {label}: " + "; ".join(line))
 
 
+def zl_spot_check(level: str, our_id: str, key: str, match, rec_of, months: list[int]) -> None:
+    """Zillow's latest month for one place: output (explorer + screener) vs the raw wide CSV cell."""
+    label = "ZHVI" if key == "zv" else "ZORI"
+    f = zl.file_for(RAW, level, key)
+    if f is None:
+        problems.append(f"Zillow spot check {level} {our_id} {label}: no raw file")
+        return
+    hdr = [c for c in pd.read_csv(f, nrows=0).columns if zl.DATE.match(c)]
+    month = int(hdr[-1][:4]) * 100 + int(hdr[-1][5:7])
+    if month not in months:
+        problems.append(f"Zillow {f.name} ends {month}, outside the month axis")
+        return
+    raw_v = zl.raw_value(RAW, level, key, match, month)
+    targets = [("explorer", unpack(rec_of(our_id)), months.index(month))]
+    if level in ("state", "county", "zip"):
+        obj = json.loads((OUT / "scr" / f"{level}_zl.json").read_text(encoding="utf-8"))
+        r = obj["rows"].get(our_id)
+        if r is None:
+            problems.append(f"Zillow spot check {level} {our_id}: missing from screener")
+        else:
+            targets.append(("screener", dict(zip(obj["keys"], (delta_dec(x) for x in r))), months.index(month) - obj["start"]))
+    for where, enc, idx in targets:
+        out_v = decode_value(enc, key, idx, zl.ZL_ENC)
+        ok = (raw_v is None and out_v is None) if (raw_v is None or out_v is None) else abs(out_v - raw_v) <= 0.5 / zl.ZL_ENC[key][1] + 1e-9
+        log(f"    Zillow {label} {level} {our_id} @ {month} {where}: {out_v} vs raw {raw_v} {'ok' if ok else 'MISMATCH'}")
+        if not ok:
+            problems.append(f"Zillow spot check {level} {our_id} {label} {where}: output {out_v} != raw {raw_v}")
+
+
 # ---------------------------------------------------------------- main
 def main() -> int:
     quick = "--quick" in sys.argv
@@ -488,6 +527,16 @@ def main() -> int:
     rs_frames: dict[str, pd.DataFrame | None] = {}
     rs_region: dict[str, dict[str, str]] = {}    # level -> our id -> Redfin region name (spot checks)
     rs_cov: dict[str, int] = {}
+    zl_frames: dict[str, pd.DataFrame | None] = {}
+    zl_cov: dict[str, dict[str, int]] = {}
+
+    def zillow_for(level: str, enc: dict, names: dict[str, str]) -> None:
+        """Read both Zillow series for a level and merge them into the encoded records."""
+        df = zl.read_zillow(RAW, level, months, names, log, warnings)
+        zl_frames[level] = df
+        if df is not None:
+            add_redfin(enc, df, months, zl.ZL_ENC)
+            zl_cov[level] = {k: int(df.loc[df[k].notna(), "_id"].nunique()) for k in ("zv", "zr")}
 
     def redfin_for(level: str, mapping_of) -> pd.DataFrame | None:
         df = rfd.get(level)
@@ -509,6 +558,7 @@ def main() -> int:
         us = us.assign(_k="us")
         enc = encode(us, "_k", months)
         rs_cov["us"] = add_redfin(enc, redfin_for("us", rf.map_us), months)
+        zillow_for("us", enc, {"us": "United States"})
         sizes["us.json"] = write_json(OUT / "us.json", {"us": {"n": "United States", "d": pack(enc["us"])}})
         idx.append(["us", "us", "United States", ""])
 
@@ -516,6 +566,7 @@ def main() -> int:
     st_names = latest_names(st, "state_id", "state")
     enc = encode(st, "state_id", months)
     rs_cov["state"] = add_redfin(enc, redfin_for("state", lambda d: rf.map_states(d, st_names.to_dict())), months)
+    zillow_for("state", enc, {k: st_names.get(k, k) for k in enc})
     states = {}
     scr_names: dict[str, dict[str, tuple[str, str | None]]] = {"state": {}, "metro": {}, "county": {}, "zip": {}}
     for k, d in enc.items():
@@ -532,6 +583,7 @@ def main() -> int:
     enc = encode(me, "cbsa_code", months)
     me_titles = {k: me_names.get(k) or f"Metro {k}" for k in enc}
     rs_cov["metro"] = add_redfin(enc, redfin_for("metro", lambda d: rf.map_metros(d, me_titles, warnings)), months)
+    zillow_for("metro", enc, me_titles)
     for code, (city, _) in rf.SPLIT_METROS.items():
         if code in me_titles and not me_titles[code].startswith(city):
             problems.append(f"SPLIT_METROS {code} expected '{city}...', realtor.com title is '{me_titles[code]}'")
@@ -570,6 +622,7 @@ def main() -> int:
         if "," not in co_titles[k] and STATE_FIPS.get(k[:2]):
             co_titles[k] += ", " + STATE_FIPS[k[:2]]
     rs_cov["county"] = add_redfin(enc, redfin_for("county", lambda d: rf.map_counties(d, co_titles, warnings)), months)
+    zillow_for("county", enc, co_titles)
     shards = {}
     for k, d in enc.items():
         n = title_place(co_names.get(k)) or f"County {k}"
@@ -602,6 +655,7 @@ def main() -> int:
         enc = encode(zp, "postal_code", months)
         rs_cov["zip"] = add_redfin(enc, redfin_for("zip", lambda d: {n: n.zfill(5) for n in d["REGION NAME"].unique()
                                                                       if n.isdigit() and n.zfill(5) in enc}), months)
+        zillow_for("zip", enc, {k: k for k in enc})
         shards = {}
         unnamed = 0
         for k, d in enc.items():
@@ -629,7 +683,7 @@ def main() -> int:
                                ("county", co, "county_fips"), ("zip", zp, "postal_code")]:
         if df is not None:
             scr_info[level] = write_screener(level, df, key_col, months, scr_names[level], sizes,
-                                             rs_frames.get(level))
+                                             rs_frames.get(level), zl_frames.get(level))
 
     # ---- meta
     type_order = {"us": 0, "state": 1, "metro": 2, "county": 3, "zip": 4}
@@ -638,7 +692,12 @@ def main() -> int:
         "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
         "source": "realtor.com Inventory Core Metrics (History files)",
         "months": months,
-        "scale": {**SCALE, **rf.RS_SCALE},
+        "scale": {**SCALE, **rf.RS_SCALE, **zl.ZL_SCALE},
+        "zl": {"places": zl_cov,
+               "last": {k: (int(zl_frames["us"].loc[zl_frames["us"][k].notna(), "month"].max())
+                            if zl_frames.get("us") is not None else None) for k in ("zv", "zr")},
+               "first": {k: (int(zl_frames["us"].loc[zl_frames["us"][k].notna(), "month"].min())
+                             if zl_frames.get("us") is not None else None) for k in ("zv", "zr")}},
         "delta": True,   # every series in the place files is delta-encoded (see pack())
         "rs": {"places": rs_cov, "split": sorted(rf.SPLIT_METROS), "div": rs_div, "zipRolling": True,
                "first": (int(rs_frames["us"]["month"].min()) if rs_frames.get("us") is not None else None),
@@ -685,7 +744,20 @@ def main() -> int:
         rs_spot_check("zip", "30084", rs_region.get("zip", {}).get("30084"),
                       lambda k: json.loads((OUT / "zip" / f"{k[:2]}.json").read_text(encoding="utf-8"))[k]["d"], months)
 
-    return report({"frames": frames, "months": months, "sizes": sizes, "zip": zip_stats, "rs": rs_cov,
+    log("  Zillow values and rents vs raw:")
+    shard = lambda lv: (lambda k: json.loads((OUT / lv / f"{k[:2]}.json").read_text(encoding="utf-8"))[k]["d"])
+    if us is not None:
+        zl_spot_check("us", "us", "zv", lambda r: r.get("RegionType") == "country",
+                      lambda k: json.loads((OUT / "us.json").read_text(encoding="utf-8"))["us"]["d"], months)
+    zl_spot_check("state", "GA", "zv", lambda r: r.get("RegionName") == "Georgia",
+                  lambda k: json.loads((OUT / "states.json").read_text(encoding="utf-8"))[k]["d"], months)
+    zl_spot_check("county", "13089", "zv", lambda r: r.get("StateCodeFIPS", "").zfill(2) + r.get("MunicipalCodeFIPS", "").zfill(3) == "13089",
+                  shard("county"), months)
+    if zp is not None:
+        zl_spot_check("zip", "30084", "zv", lambda r: r.get("RegionName", "").zfill(5) == "30084", shard("zip"), months)
+        zl_spot_check("zip", "77494", "zr", lambda r: r.get("RegionName", "").zfill(5) == "77494", shard("zip"), months)
+
+    return report({"frames": frames, "months": months, "sizes": sizes, "zip": zip_stats, "rs": rs_cov, "zl": zl_cov,
                    "counts": {"states": len(states), "metros": me["cbsa_code"].nunique(),
                               "counties": co["county_fips"].nunique()}}, t_start)
 
@@ -717,6 +789,8 @@ def report(info, t_start) -> int:
         log(f"  meta.json {mb(sizes['meta.json'])}")
         if info.get("rs"):
             log("  Redfin closed sales matched: " + ", ".join(f"{k} {v:,}" for k, v in info["rs"].items()))
+        if info.get("zl"):
+            log("  Zillow matched (ZHVI / ZORI): " + ", ".join(f"{k} {v['zv']:,}/{v['zr']:,}" for k, v in info["zl"].items()))
         scr = {k: v for k, v in sizes.items() if k.startswith("scr/")}
         if scr:
             log("  screener: " + ", ".join(f"{k[4:-5]} {mb(v)}" for k, v in scr.items()))

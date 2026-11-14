@@ -257,7 +257,9 @@ const C = {s1:'#BA8628', s2:'#139A8A', s3:'#8C7BF5', ref:'#8a93a8', grid:'rgba(2
 // Redfin closed sales (rs_*): sale price, $/sq ft, homes sold, pending sales, months of supply,
 // days on market, sale-to-list, share sold above list, share off market in two weeks.
 const RS_KEYS = ['rs_p','rs_f','rs_n','rs_pend','rs_mos','rs_dom','rs_sl','rs_ab','rs_off2'];
-const KEYS = ['p','a','f','s','al','nl','pl','tl','dom','prs','pis','pr','q'].concat(RS_KEYS);
+// Zillow: zv = typical home value (ZHVI), zr = typical rent (ZORI, $/month).
+const ZL_KEYS = ['zv','zr'];
+const KEYS = ['p','a','f','s','al','nl','pl','tl','dom','prs','pis','pr','q'].concat(RS_KEYS, ZL_KEYS);
 const TYPE = {us:'US', state:'State', metro:'Metro', county:'County', zip:'Zip'};
 const $ = id => document.getElementById(id);
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -279,6 +281,17 @@ function decode(d){
   return out;
 }
 const hasRS = d => d.rs_p.some(v => v !== null) || d.rs_n.some(v => v !== null);
+// Zillow-derived series, computed here rather than stored: gross rent yield, price-to-rent,
+// list-to-value (realtor.com list ÷ ZHVI) and sale-to-value (Redfin sale ÷ ZHVI).
+function deriveZL(d){
+  const div = (a, b, f) => a.map((v, i) => isNum(v) && b[i] ? f(v, b[i]) : null);
+  d.zy = div(d.zr, d.zv, (r, v) => r*12/v);
+  d.zp2r = div(d.zv, d.zr, (v, r) => v/(r*12));
+  d.zl2v = div(d.p, d.zv, (l, v) => l/v);
+  d.zs2v = div(d.rs_p, d.zv, (sp, v) => sp/v);
+}
+// Index of Zillow's latest month on our axis (Zillow posts mid-month, so it can trail realtor.com).
+function zli(){ const z = S.meta.zl && S.meta.zl.last ? S.meta.zl.last.zv : null; const i = z ? S.meta.months.indexOf(z) : -1; return i >= 0 ? i : S.meta.months.length-1; }
 async function getJSON(u){ const r = await fetch(u); if (!r.ok) throw new Error(u+' → HTTP '+r.status); return r.json(); }
 function shardPath(type, id){
   if (type === 'us') return 'd/us.json';
@@ -297,6 +310,8 @@ async function getGeo(type, id){
   if (!rec) return null;
   const g = {type, id, key, n:rec.n, st:rec.st || null, rk:rec.rk || null, hr:rec.hr || null, rsx:rec.rsx || null, rsdiv:rec.rsdiv || null, d:decode(rec.d), tc:{}};
   g.rs = hasRS(g.d);
+  deriveZL(g.d);
+  g.zv = g.d.zv.some(v => v !== null); g.zr = g.d.zr.some(v => v !== null); g.zl = g.zv || g.zr;
   S.geos[key] = g;
   return g;
 }
@@ -337,7 +352,10 @@ const fmt = {
   chg: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+'%',
   pts: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+' pts',
   mos: v => !isNum(v) ? '–' : v.toFixed(1),
-  mosd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)
+  mosd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1),
+  rent: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
+  yrs: v => !isNum(v) ? '–' : v.toFixed(1),
+  yrsd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)
 };
 // dir: +1 = rising favors sellers / tighter market, -1 = falling favors sellers, 0 = neutral
 function cls(v, dir){ if (!dir || !isNum(v) || Math.abs(v) < 0.0005) return 'nt'; return (v > 0) === (dir > 0) ? 'up' : 'dn'; }
@@ -481,6 +499,7 @@ function render(){
     kp('Median sq ft','s',fmt.num,0)+
   '</div>';
   h += rsSection(g, parentGeo(g));
+  h += zlSection(g, parentGeo(g));
 
   const read = marketRead(g, pg);
   h += '<div class="grid2"><div class="card read"><h2>Market read'+tipBtn('read')+'</h2><div class="sub">'+N+'-month trailing averages'+(pg ? ' vs '+esc(geoTitle(pg)) : '')+' and vs a year ago'+
@@ -505,12 +524,20 @@ function render(){
     ['c_stl','Sale-to-list and % sold above list','Average sale price ÷ final list price (left axis) and the share of homes that sold above list (right axis). Redfin.'],
     ['c_sold','Homes sold vs pending sales','Closed sales and new pending contracts each month, from Redfin.'],
     ['c_mos','Months of supply','Months it would take to sell current inventory at the current sales pace (Redfin). Green under 4 = seller\'s market, amber 4–6 = balanced, red over 6 = buyer\'s market.']
-  ] : []).concat([
+  ] : []).concat(g.zl ? (g.zv ? [
+    ['c_vls','Value vs list vs sale','Zillow typical home value (ZHVI) against realtor.com median list price'+(g.rs ? ' and Redfin median sale price' : '')+', '+N+'M trailing averages.']
+  ] : []).concat(g.zr ? [
+    ['c_zr','Typical rent (Zillow ZORI)','Typical asking rent per month, with its year-over-year change underneath.']
+  ] : [], g.zr && g.zv ? [
+    ['c_zy','Gross rent yield','Annual rent ÷ home value (ZORI × 12 ÷ ZHVI), vs the benchmark.']
+  ] : []) : []).concat([
     ['c_sp','Seasonality: median listing price','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).'],
     ['c_sa','Seasonality: active listings','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).']
   ]);
   const SINGLE = ['c_p','c_f','c_dom','c_pr','c_sq'], RSCH = ['c_ls','c_stl','c_sold'];
-  defs.forEach(([id,t,n]) => { h += '<div class="card ch"><h3>'+t+tipBtn(id, SINGLE.includes(id) || id === 'c_mos' ? 'chart' : RSCH.includes(id) ? 'rschart' : null)+'</h3><div class="note">'+n+'</div><div class="legend" id="lg_'+id+'"></div><div class="box"><canvas id="'+id+'"></canvas></div></div>'; });
+  defs.forEach(([id,t,n]) => { h += '<div class="card ch"><h3>'+t+tipBtn(id, SINGLE.includes(id) || id === 'c_mos' || id === 'c_zy' ? 'chart' : RSCH.includes(id) ? 'rschart' : null)+'</h3><div class="note">'+n+'</div><div class="legend" id="lg_'+id+'"></div>'+
+    (id === 'c_zr' ? '<div class="box" style="height:170px"><canvas id="c_zr"></canvas></div><div class="legend" id="lg_c_zry" style="margin-top:8px"></div><div class="box" style="height:110px"><canvas id="c_zry"></canvas></div>'
+                   : '<div class="box"><canvas id="'+id+'"></canvas></div>')+'</div>'; });
   h += '</div>';
 
   h += '<div class="sec"><h2>Monthly data'+tipBtn('monthly')+'</h2><button class="btn" id="copy">Copy table as CSV</button></div><div class="card tbl" id="tbl"></div>';
@@ -541,6 +568,12 @@ const TIPS = {
   rs_sl:'<b>Sale-to-list</b> — average sale price ÷ final list price. 100% means homes sell at asking on average; above 100% means buyers are bidding over asking. Changes are in percentage points.',
   rs_ab:'<b>% sold above list</b> — the share of homes that sold for more than their final list price. A high share means buyers are competing.',
   rs_dom:'<b>Median days to sale</b> — Redfin\'s typical number of days from listing to going under contract, for homes that sold. Fewer days means a faster market, so falling is green.',
+  // Zillow tiles
+  zv:'<b>Typical home value (ZHVI)</b> — Zillow\'s estimate of the value of a typical home here (the middle third of single-family homes and condos), whether or not it\'s for sale. Zillow smooths and seasonally adjusts it. Rising is green.',
+  zr:'<b>Typical rent (ZORI)</b> — Zillow\'s observed typical asking rent per month for homes and apartments listed for rent, smoothed. Rising rents mean stronger rental demand, so rising is green.',
+  zy:'<b>Gross rent yield</b> — a year\'s typical rent ÷ the typical home value (ZORI × 12 ÷ ZHVI). It\'s a rough guide to rental return before taxes, insurance, upkeep and vacancy. Changes are in percentage points.',
+  zp2r:'<b>Price-to-rent</b> — the typical home value ÷ a year\'s typical rent: how many years of rent it takes to equal the price. Higher favours renting; lower favours buying. Changes are in years.',
+  zl2v:'<b>List-to-value</b> — realtor.com\'s median list price ÷ Zillow\'s typical home value. Over 100% means homes on the market are priced above the typical home\'s value (often because listings skew newer or bigger). Changes are in points.',
   // mortgage distress tiles
   md90:'<b>90+ days delinquent</b> — the share of mortgages at least 90 days behind on payments (seriously delinquent). It\'s the strongest early warning of foreclosures and forced sales. Also shown: the 30–89 day rate.',
   mdchg:'<b>Change vs 12 months ago</b> — how much the 90+ day delinquency rate has moved in a year, in percentage points. Rising (red) means more households are falling behind.',
@@ -552,6 +585,7 @@ const TIPS = {
   metrosize:'<b>Metro size</b> — realtor.com\'s rank of this metro by number of households (1 = the most households in the US).',
   map:'<b>Location</b> — the gold outline is the selected area (US Census boundaries). Dashed = its county or state, for context; violet = the place you\'re comparing with. Zoom in to see zip outlines, and click any spot to open its zip, county, metro or state.',
   distress:'<b>Mortgage Distress</b> — the share of mortgages behind on payments, from the CFPB\'s National Mortgage Database. It\'s county-level: a zip uses the county that holds most of its land. The data runs several months behind realtor.com.',
+  zillow:'<b>Values &amp; rents</b> — Zillow Research\'s typical home value (ZHVI) and typical rent (ZORI), plus measures derived from them. Unlike listings and sales, ZHVI covers all homes, not just those on the market that month. Zillow runs about a month behind and smooths its figures, so it is slow to show turning points.',
   closed:'<b>Closed sales</b> — recorded sales from Redfin, shown alongside realtor.com\'s listings. Listings show what sellers are asking; closed sales show what buyers actually paid and how fast homes sold. Redfin\'s zip figures are 3-month rolling.',
   monthly:'<b>Monthly data</b> — every month\'s realtor.com values, newest first, followed by your {N}-month trailing averages (teal headers). ⚑ marks months realtor.com flagged for data quality.',
   // charts
@@ -567,6 +601,9 @@ const TIPS = {
   c_stl:'<b>Sale-to-list</b> (left axis) — average sale price ÷ final list price; above 100% means buyers are paying over asking. <b>% sold above list</b> (right axis) — the share of homes that sold over list. Both rise in competitive markets.',
   c_sold:'<b>Homes sold vs pending sales</b> — closed sales and new contracts each month (Redfin). Pending sales lead closings by about one to two months, so pendings turning down usually means fewer sales ahead.',
   c_mos:'<b>Months of supply</b> — inventory ÷ the monthly pace of sales. Shaded bands: green under 4 = seller\'s market, amber 4–6 = balanced, red over 6 = buyer\'s market.',
+  c_vls:'<b>Value vs list vs sale</b> — Zillow\'s typical home value next to realtor.com\'s median asking price and Redfin\'s median sale price. The three measure different things (all homes, homes for sale, homes that sold), so watch how the gaps change rather than the levels.',
+  c_zr:'<b>Typical rent</b> — Zillow\'s typical asking rent per month (top), with its year-over-year change (bottom). Above zero on the bottom chart = rents higher than a year ago.',
+  c_zy:'<b>Gross rent yield</b> over time — a year\'s rent ÷ home value. When values rise faster than rents, the yield falls.',
   c_sp:'<b>Seasonality of list prices</b> — each year is its own line from January to December, so you can see the normal spring and summer peak and compare years at the same point in the season.',
   c_sa:'<b>Seasonality of inventory</b> — each year\'s active listings by month. Compare this year\'s line with past years to see whether inventory is unusually high or low for the season.'
 };
@@ -574,7 +611,8 @@ const TIP_FOOT = {
   tile:'Rows: this month vs the same month last year · the {N}-month trailing average · that average vs the same window a year earlier.',
   rs:'Rows: this month vs the same month last year · the {N}-month trailing average · that average vs a year earlier · the parent state\'s {N}-month average (the US for a state), for comparison.',
   chart:'Dots / thin line = each month · teal = your {N}-month trailing average · dashed gray = benchmark (state or US) · violet = the place you\'re comparing with.',
-  rschart:'Dotted lines = each month · solid = your {N}-month trailing average.'
+  rschart:'Dotted lines = each month · solid = your {N}-month trailing average.',
+  zl:'Rows: Zillow\'s latest month vs the same month last year · the {N}-month trailing average · that average vs a year earlier · the benchmark\'s {N}-month average (state, or the US where the state has no figure).'
 };
 const tipBtn = (key, kind) => TIPS[key] ? '<button type="button" class="tip" data-tip="'+key+'"'+(kind ? ' data-kind="'+kind+'"' : '')+' aria-label="What does this show?">?</button>' : '';
 const tipText = el => {
@@ -652,6 +690,72 @@ function rsSection(g, pg){
     tile('Median days to sale','rs_dom',fmt.num,-1)+
   '</div>';
 }
+// ---------- values & rents (Zillow) ----------
+function zlReason(g){
+  if (g.type === 'metro') return 'Zillow\'s metro home-value file has no row for this metro (Dayton, OH and Poughkeepsie, NY are missing from it), or this is a newer micro area Zillow doesn\'t list.';
+  if (g.type === 'county' && g.id.startsWith('09')) return 'Connecticut replaced its counties with planning regions in 2022; Zillow still reports the old counties, so they can\'t be matched.';
+  return 'Zillow has no home-value estimate for this place — usually a small or rural area, or a PO-box zip.';
+}
+function zlSection(g, pg){
+  const head = '<div class="sec"><h2>Values &amp; rents <span class="srcl">(Zillow)</span>'+tipBtn('zillow')+'</h2></div>';
+  if (!g.zl) return head+'<div class="card rsnone"><b>No Zillow data</b><div class="sub">'+esc(zlReason(g))+'</div></div>';
+  const d = g.d, N = S.N, M = S.meta.months, i = zli();
+  const benchFor = k => { if (pg && T(pg,k)[i] !== null) return pg; if (S.usGeo && g.type !== 'us' && T(S.usGeo,k)[i] !== null) return S.usGeo; return null; };
+  const noRent = g.type === 'state' ? 'Zillow publishes no state-level rents' : 'Zillow covers fewer zips';
+  // pts: change in points (×100); dif: plain difference with formatter
+  const tile = (lab, k, f, dir, mode, dfmt) => {
+    const none = (msg, why) => '<div class="card kpi">'+tipBtn(k, 'zl')+'<div class="lab">'+lab+'</div><div class="val" style="font-size:16px;color:var(--muted)">'+msg+'</div><div class="row"><span>'+why+'</span></div></div>';
+    if ((k === 'zr' || k === 'zy' || k === 'zp2r') && !g.zr) return none('No rent data', noRent);
+    if ((k === 'zv' || k === 'zy' || k === 'zp2r' || k === 'zl2v') && !g.zv) return none('No home-value data', 'Missing from Zillow\'s home-value file');
+    const v = d[k][i], v0 = d[k][i-12], tv = T(g,k)[i], ty = T(g,k)[i-12];
+    const ch = (a, b) => mode === 'pts' || mode === 'dif' ? (isNum(a) && isNum(b) ? a-b : null) : (isNum(a) && b ? a/b-1 : null);
+    const cf = mode === 'pts' ? fmt.pts : mode === 'dif' ? dfmt : fmt.chg, rawY = ch(v, v0), taY = ch(tv, ty);
+    const bg = benchFor(k), bv = bg ? T(bg,k)[i] : null;
+    return '<div class="card kpi">'+tipBtn(k, 'zl')+'<div class="lab">'+lab+'</div><div class="val">'+f(v)+'</div>'+
+      '<div class="row"><span>YoY (month)</span><span class="'+cls(rawY,dir)+'">'+cf(rawY)+'</span></div>'+
+      '<div class="row"><span>'+N+'M trailing avg</span><span>'+f(tv)+'</span></div>'+
+      '<div class="row"><span>'+N+'M avg YoY</span><span class="'+cls(taY,dir)+'">'+cf(taY)+'</span></div>'+
+      (bg ? '<div class="row"><span>'+esc((bg.type === 'us' ? 'US' : bg.id)+' '+N+'M avg')+'</span><span>'+f(bv)+'</span></div>' : '')+'</div>';
+  };
+  return head+'<div class="sub" style="margin:-4px 0 10px">Zillow as of <b>'+mlong(M[i])+'</b>'+(i < M.length-1 ? ' (Zillow posts mid-month, so it runs a month behind the listing data)' : '')+'. '+
+    'ZHVI and ZORI are already smoothed by Zillow; the trailing average adds further smoothing. Zillow\'s values lag turning points vs listing data.</div>'+
+    '<div class="kpis">'+
+    tile('Typical home value','zv',fmt.usd,1)+
+    tile('Typical rent / month','zr',fmt.rent,1)+
+    tile('Gross rent yield','zy',v => !isNum(v) ? '–' : (v*100).toFixed(2)+'%',0,'pts')+
+    tile('Price-to-rent (years)','zp2r',fmt.yrs,0,'dif',fmt.yrsd)+
+    tile('List-to-value','zl2v',fmt.pct,0,'pts')+
+  '</div>';
+}
+function drawZLCharts(g, bg){
+  const d = g.d, N = S.N, raw = S.raw;
+  if (g.zv){ const ds = [], lg = [];
+    [['zv','Home value (Zillow)',C.s2], ['p','List price (realtor.com)',C.s1]].concat(g.rs ? [['rs_p','Sale price (Redfin'+(g.rsdiv ? ', '+g.rsdiv : '')+')',C.s3]] : [])
+      .forEach(([k, l, c]) => { ds.push(lineDS(l+' ('+N+'M avg)', T(g,k), c)); lg.push([c, l]); });
+    mk('c_vls', ds, fmt.usd, false, lg);
+  }
+  if (!g.zr) return;
+  { const ds = [], lg = [];
+    if (raw){ ds.push(rawDS('Rent', d.zr, C.s1)); lg.push([C.s1, 'Monthly']); }
+    ds.push(lineDS('Rent ('+N+'M avg)', T(g,'zr'), C.s2)); lg.push([C.s2, N+'-month trailing avg']);
+    const rb = bg && T(bg,'zr').some(v => v !== null) ? bg : (S.usGeo && g.type !== 'us' ? S.usGeo : null);
+    if (rb){ ds.push(refDS(geoTitle(rb)+' ('+N+'M avg)', T(rb,'zr'))); lg.push([C.ref, geoTitle(rb)+' ('+N+'M avg)', 1]); }
+    mk('c_zr', ds, fmt.rent, false, lg);
+    mk('c_zry', [lineDS('Rent YoY', yoy(T(g,'zr')), C.s3, 2.25)], v => (v >= 0 ? '+' : '')+(v*100).toFixed(1)+'%', false,
+       [[C.s3, 'Year-over-year change of the '+N+'M avg rent']], o => {
+         o.scales.y.grid.color = c => c.tick.value === 0 ? 'rgba(255,255,255,.45)' : C.grid;
+         o.scales.y.ticks.maxTicksLimit = 4;
+         o.plugins.tooltip.callbacks.label = c => ' Rent YoY: '+(c.parsed.y === null ? '–' : (c.parsed.y >= 0 ? '+' : '')+(c.parsed.y*100).toFixed(1)+'%');
+       });
+  }
+  if (g.zv){ const ds = [], lg = [];
+    ds.push(lineDS('Gross yield ('+N+'M avg)', T(g,'zy'), C.s2)); lg.push([C.s2, 'Gross rent yield ('+N+'M avg)']);
+    const yb = bg && T(bg,'zy').some(v => v !== null) ? bg : (S.usGeo && g.type !== 'us' ? S.usGeo : null);
+    if (yb){ ds.push(refDS(geoTitle(yb)+' ('+N+'M avg)', T(yb,'zy'))); lg.push([C.ref, geoTitle(yb)+' ('+N+'M avg)', 1]); }
+    mk('c_zy', ds, v => (v*100).toFixed(1)+'%', false, lg);
+  }
+}
+
 // Shaded months-of-supply bands: under 4 seller's, 4–6 balanced, over 6 buyer's.
 const mosBands = {id:'mosBands', beforeDatasetsDraw(ch){
   const {ctx, chartArea:a, scales:{y}} = ch;
@@ -1125,6 +1229,7 @@ function drawCharts(g, bg){
     });
   }
   if (g.rs) drawRSCharts(g, bg);
+  if (g.zl) drawZLCharts(g, bg);
   seasonal('c_sp', d.p, fmt.usd);
   seasonal('c_sa', d.al, fmt.num);
   drawDistressChart();
@@ -1193,7 +1298,7 @@ function copyCSV(g){
 // Ranks every place at one level from d/scr/<level>.json (last 24 months, delta-encoded, same scaling
 // as the explorer). Every figure is the N-month trailing average from the shared box; every YoY compares
 // that average with the same window 12 months earlier, exactly like the explorer tiles.
-const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0, rsFiles:{}, rsData:{}, rsFail:{}};
+const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0, rsFiles:{}, rsData:{}, rsFail:{}, zlFiles:{}, zlData:{}, zlFail:{}, rentOnly:false};
 const SCR_PLURAL = {state:'states', metro:'metros', county:'counties', zip:'zips'};
 // [key, header, formatter, color direction (+1 rising = tighter for sellers, -1 falling = tighter, 0 = none)]
 const SCOLS = [
@@ -1210,8 +1315,13 @@ const SCOLS = [
   ['rs_n','Homes sold',fmt.num,0], ['rs_nY','Homes sold YoY',fmt.chg,1],
   ['rs_mos','Months of supply',fmt.mos,0], ['rs_sl','Sale-to-list',fmt.pct,0],
   ['gap','List-to-sale gap',fmt.chg,0],
+  // Zillow (scr/<level>_zl.json, at Zillow's latest month)
+  ['zv','Home value (ZHVI)',fmt.usd,0], ['zvY','Value YoY',fmt.chg,1],
+  ['zr','Rent (ZORI)',fmt.rent,0], ['zrY','Rent YoY',fmt.chg,1],
+  ['zy','Gross yield',v => !isNum(v) ? '–' : (v*100).toFixed(2)+'%',0], ['zl2v','List-to-value',fmt.pct,0],
   ['score','Market score',null,0]
 ];
+const SCR_ZL_COLS = new Set(['zv','zvY','zr','zrY','zy','zl2v']);
 const SCR_TIPS = {
   n:'Place name.', st:'State (a metro\'s first-listed state).',
   p:'Median list price, N-month trailing average (realtor.com).', pY:'List price vs the same window a year earlier.',
@@ -1226,6 +1336,9 @@ const SCR_TIPS = {
   rs_n:'Homes sold (Redfin), trailing average.', rs_nY:'Homes sold vs a year earlier.',
   rs_mos:'Months of supply (Redfin): under 4 = seller\'s market, over 6 = buyer\'s.', rs_sl:'Sale-to-list (Redfin): average sale ÷ list price; over 100% = selling over asking.',
   gap:'List-to-sale gap: median list price ÷ median sale price − 1. Positive = asking prices above recent sale prices.',
+  zv:'Zillow typical home value (ZHVI), trailing average at Zillow\'s latest month.', zvY:'Home value vs a year earlier.',
+  zr:'Zillow typical rent per month (ZORI), trailing average.', zrY:'Rent vs a year earlier.',
+  zy:'Gross rent yield: rent × 12 ÷ home value.', zl2v:'List-to-value: realtor.com median list price ÷ Zillow home value, at Zillow\'s latest month.',
   score:'Market score: the market read\'s signals (+1 seller / −1 buyer each). +2 or more = Seller, −2 or less = Buyer.'
 };
 const SCR_RS_COLS = new Set(['rs_p','rs_pY','rs_n','rs_nY','rs_mos','rs_sl','gap']);
@@ -1240,7 +1353,9 @@ const PRESETS = [
   ['Changes','Cooling fastest','domY',-1], ['Changes','Hottest','score',-1],
   ['Closed sales','Lowest months of supply','rs_mos',1], ['Closed sales','Selling over asking','rs_sl',-1],
   ['Closed sales','Sales volume falling fastest','rs_nY',1], ['Closed sales','Highest sale price','rs_p',-1],
-  ['Closed sales','Most homes sold','rs_n',-1], ['Closed sales','Biggest list-to-sale gap','gap',-1]
+  ['Closed sales','Most homes sold','rs_n',-1], ['Closed sales','Biggest list-to-sale gap','gap',-1],
+  ['Values & rents','Highest rental yield','zy',-1], ['Values & rents','Rents rising fastest','zrY',-1],
+  ['Values & rents','Values falling','zvY',1], ['Values & rents','Listed above value','zl2v',-1]
 ];
 function loadScr(level){
   return SCR.files[level] || (SCR.files[level] = getJSON('d/scr/'+level+'.json').then(o => {
@@ -1276,13 +1391,37 @@ function loadScrRs(level){
     return out;
   }).catch(e => { delete SCR.rsFiles[level]; SCR.rsFail[level] = e.message; throw e; }));
 }
+// Zillow columns for the screener: {id: {zv:[...], zr:[...]}} on the same 24-month window.
+function loadScrZl(level){
+  return SCR.zlFiles[level] || (SCR.zlFiles[level] = getJSON('d/scr/'+level+'_zl.json').then(o => {
+    const out = {};
+    for (const id in o.rows){
+      const d = {};
+      o.keys.forEach((k, j) => {
+        const s = o.rows[id][j];
+        if (!s){ d[k] = null; return; }
+        let prev = 0;
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v));
+      });
+      out[id] = d;
+    }
+    SCR.zlData[level] = {start:o.start, rows:out};
+    return out;
+  }).catch(e => { delete SCR.zlFiles[level]; SCR.zlFail[level] = e.message; throw e; }));
+}
+// Trailing average at a given index of a series, and 12 months before it.
+function tAt(arr, N, i){
+  if (!arr || i < 0 || i >= arr.length) return [null, null];
+  const t = trailing(arr, N);
+  return [t[i], i >= 12 ? t[i-12] : null];
+}
 // Latest trailing average and the one 12 months earlier (null when the 24-month file can't cover it).
 function tNowAgo(arr, N){
   if (!arr) return [null, null];
   const t = trailing(arr, N), li = arr.length-1;
   return [t[li], li >= 12 ? t[li-12] : null];
 }
-function scrRow(r, N, rd){
+function scrRow(r, N, rd, zd, zi){
   const x = {id:r.id, n:r.n, st:r.st};
   const ch = (a, b) => isNum(a) && b ? a/b-1 : null;
   for (const k of ['p','f','al','nl','dom','prs','prc','pr']){
@@ -1296,6 +1435,15 @@ function scrRow(r, N, rd){
     x.rs_mos = tNowAgo(rd.rs_mos, N)[0]; x.rs_sl = tNowAgo(rd.rs_sl, N)[0];
     x.gap = isNum(x.p) && x.rs_p ? x.p/x.rs_p-1 : null;   // how far asking prices sit above recent sale prices
     x.hasRS = [x.rs_p, x.rs_n, x.rs_mos, x.rs_sl].some(isNum);
+  }
+  if (zd){
+    const [v, v0] = tAt(zd.zv, N, zi), [rt, rt0] = tAt(zd.zr, N, zi);
+    x.zv = v; x.zvY = ch(v, v0); x.zr = rt; x.zrY = ch(rt, rt0);
+    // Same as the explorer: derive each month's ratio, then take its trailing average.
+    const ratio = (a, b, f) => a && b ? a.map((u, j) => isNum(u) && b[j] ? f(u, b[j]) : null) : null;
+    x.zy = tAt(ratio(zd.zr, zd.zv, (rt_, v_) => rt_*12/v_), N, zi)[0];
+    x.zl2v = tAt(ratio(r.d.p, zd.zv, (l, v_) => l/v_), N, zi)[0];   // realtor.com list ÷ ZHVI
+    x.hasZL = isNum(v) || isNum(rt);
   }
   return x;
 }
@@ -1317,8 +1465,8 @@ function scrScore(x, b){
   return n ? s : null;
 }
 async function scrCalc(level, N){
-  const rsd = SCR.rsData[level] || null;
-  const key = level+'|'+N+'|'+(rsd ? 'rs' : '');
+  const rsd = SCR.rsData[level] || null, zld = SCR.zlData[level] || null;
+  const key = level+'|'+N+'|'+(rsd ? 'rs' : '')+'|'+(zld ? 'zl' : '');
   if (SCR.calc[key]) return SCR.calc[key];
   const file = await loadScr(level);
   // Benchmark: parent state (from the state screener file) for zips and counties; the US for states and metros.
@@ -1332,7 +1480,9 @@ async function scrCalc(level, N){
     ['dom','prs','pr'].forEach(k => u[k] = T(S.usGeo, k)[li]);
     bench = () => u;
   }
-  const out = file.rows.map(r => { const x = scrRow(r, N, rsd ? (rsd[r.id] || {}) : null); x.score = scrScore(x, bench(x)); return x; });
+  // Zillow's latest month, as an index into the screener's 24-month window
+  const zi = zld && S.meta.zl && S.meta.zl.last ? S.meta.months.indexOf(S.meta.zl.last.zv) - zld.start : -1;
+  const out = file.rows.map(r => { const x = scrRow(r, N, rsd ? (rsd[r.id] || {}) : null, zld ? (zld.rows[r.id] || {}) : null, zi); x.score = scrScore(x, bench(x)); return x; });
   SCR.calc = {}; SCR.calc[key] = out;   // keep one level/window at a time
   return out;
 }
@@ -1349,8 +1499,9 @@ function buildScrUI(){
     '<div class="ctl"><label class="l" for="spmax">Median price max</label><input type="number" id="spmax" min="0" step="25000" placeholder="any" inputmode="numeric"></div>'+
     '<div class="ctl"><label class="l">Show top</label><div class="seg" id="stop">'+
       [50,100,250].map(n => '<button data-v="'+n+'"'+(n === SCR.top ? ' class="on"' : '')+'>'+n+'</button>').join('')+'</div></div>'+
+    '<div class="ctl"><label class="chk"><input type="checkbox" id="srent"> Has rent data</label></div>'+
     '</div>';
-  ['Levels','Changes','Closed sales'].forEach(g => {
+  ['Levels','Changes','Closed sales','Values & rents'].forEach(g => {
     h += '<div class="presets"><span class="pl">'+g+'</span>'+PRESETS.map((p, i) => p[0] === g ? '<button class="chip" data-i="'+i+'">'+p[1]+'</button>' : '').join('')+'</div>';
   });
   h += '</div><div class="sstat"><span id="sstat">Loading…</span><button class="btn" id="scopy">Copy table as CSV</button></div>'+
@@ -1361,6 +1512,7 @@ function buildScrUI(){
   $('stop').onclick = e => { const b = e.target.closest('button'); if (!b) return; SCR.top = +b.dataset.v;
     [...$('stop').children].forEach(x => x.classList.toggle('on', x === b)); refreshScr(); };
   $('sst').onchange = () => { SCR.st = $('sst').value; refreshScr(); };
+  $('srent').onchange = () => { SCR.rentOnly = $('srent').checked; refreshScr(); };
   const num = (id, prop) => $(id).addEventListener('input', () => { const v = $(id).value.trim(); SCR[prop] = v === '' || !isFinite(+v) ? null : +v; refreshScr(); });
   num('smin', 'minAl'); num('spmin', 'pmin'); num('spmax', 'pmax');
   $('scrv').querySelectorAll('.presets .chip').forEach(b => b.onclick = () => { const p = PRESETS[+b.dataset.i]; SCR.sort = {k:p[2], dir:p[3]}; refreshScr(); });
@@ -1386,11 +1538,15 @@ async function refreshScr(){
   if (!SCR.rsData[level] && !SCR.rsFail[level]){
     loadScrRs(level).then(() => { if (SCR.level === level && S.mode === 'screener') refreshScr(); }, () => { if (SCR.level === level) refreshScr(); });
   }
+  if (!SCR.zlData[level] && !SCR.zlFail[level]){
+    loadScrZl(level).then(() => { if (SCR.level === level && S.mode === 'screener') refreshScr(); }, () => { if (SCR.level === level) refreshScr(); });
+  }
   const f = all.filter(x =>
     (!SCR.st || x.st === SCR.st) &&
     (!SCR.minAl || (isNum(x.al) && x.al >= SCR.minAl)) &&
     (SCR.pmin === null || (isNum(x.p) && x.p >= SCR.pmin)) &&
-    (SCR.pmax === null || (isNum(x.p) && x.p <= SCR.pmax)));
+    (SCR.pmax === null || (isNum(x.p) && x.p <= SCR.pmax)) &&
+    (!SCR.rentOnly || !SCR.zlData[level] || isNum(x.zr)));
   const {k, dir} = SCR.sort;
   const str = k === 'n' || k === 'st';
   f.sort((a, b) => {
@@ -1407,12 +1563,15 @@ async function refreshScr(){
     (level === 'zip' ? ' · Redfin zip sales are 3-mo rolling' : '')+
     (!SCR.rsData[level] && !SCR.rsFail[level] ? ' · <span style="color:var(--muted)">loading closed-sales columns…</span>' : '')+
     (SCR.rsFail[level] ? ' · <span class="dn">closed-sales columns didn\'t load</span>' : '')+
+    (S.meta.zl && S.meta.zl.last ? ' · Zillow as of '+mlong(S.meta.zl.last.zv) : '')+
+    (!SCR.zlData[level] && !SCR.zlFail[level] ? ' · <span style="color:var(--muted)">loading Zillow columns…</span>' : '')+
+    (SCR.zlFail[level] ? ' · <span class="dn">Zillow columns didn\'t load</span>' : '')+
     (N > 12 ? '<div class="snote">YoY columns need a trailing average of 12 months or less — the screener keeps the last 24 months.</div>' : '');
   $('scrv').querySelectorAll('.presets .chip').forEach(b => { const p = PRESETS[+b.dataset.i]; b.classList.toggle('on', p[2] === k && p[3] === dir); });
   drawScrTable();
 }
 function drawScrTable(){
-  const {k, dir} = SCR.sort, lv = SCR.level, rsReady = !!SCR.rsData[lv];
+  const {k, dir} = SCR.sort, lv = SCR.level, rsReady = !!SCR.rsData[lv], zlReady = !!SCR.zlData[lv];
   const th = (key, lab) => '<th class="s'+(key === k ? ' on' : '')+'" data-k="'+key+'" title="'+esc((SCR_TIPS[key] ? SCR_TIPS[key]+' ' : '')+'Click to sort; click again to flip.')+'">'+lab+(key === k ? '<span class="ar">'+(dir < 0 ? '▼' : '▲')+'</span>' : '')+'</th>';
   let h = '<table><thead><tr>'+th('n','Name')+th('st','State')+SCOLS.map(c => th(c[0], c[1])).join('')+'</tr></thead><tbody>';
   if (!SCR.shown.length) h += '<tr><td colspan="'+(SCOLS.length+2)+'" style="text-align:left;color:var(--muted)">Nothing matches these filters.</td></tr>';
@@ -1429,6 +1588,11 @@ function drawScrTable(){
         if (SCR_RS_COLS.has(key)){
           if (!rsReady) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">'+(SCR.rsFail[lv] ? 'Closed-sales data didn\'t load' : 'Loading closed sales…')+'</td>' : '';
           if (!x.hasRS) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">No closed-sales data</td>' : '';
+        }
+        if (SCR_ZL_COLS.has(key)){
+          if (!zlReady) return key === 'zv' ? '<td colspan="'+SCR_ZL_COLS.size+'" class="nors">'+(SCR.zlFail[lv] ? 'Zillow data didn\'t load' : 'Loading Zillow…')+'</td>' : '';
+          if (!x.hasZL) return key === 'zv' ? '<td colspan="'+SCR_ZL_COLS.size+'" class="nors">No Zillow data</td>' : '';
+          if ((key === 'zr' || key === 'zrY' || key === 'zy') && !isNum(x.zr)) return '<td class="nors" title="Zillow covers fewer zips for rents">no rent</td>';
         }
         const div = key === 'rs_p' && lv === 'metro' && S.meta.rs && S.meta.rs.div ? S.meta.rs.div[x.id] : null;
         return '<td'+(d ? ' class="'+cls(x[key], d)+'"' : '')+'>'+f(x[key])+
@@ -1510,7 +1674,7 @@ function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'b
 function renderNotes(){
   const M = S.meta.months;
   $('notes').innerHTML =
-   '<p><b>Version v05.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   '<p><b>Version v06.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
    'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
    '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
    '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
@@ -1524,6 +1688,11 @@ function renderNotes(){
      'Sale prices aren\'t public record in some non-disclosure states (e.g. TX, UT), so Redfin\'s coverage there comes from MLS data and is thinner; Redfin publishes nothing for Louisiana. '+
      'Redfin reports the 11 largest metros only by their metro divisions; each of those metros shows the division containing its principal city, labelled "Closed sales: &lt;division&gt;" (divisions are never averaged together). Counties are matched by name, metros by principal city. '+
      'With Redfin data, the market read adds two signals — months of supply (under 4 → +1, over 6 → −1) and sale-to-list (100%+ → +1, under 97% → −1) — and scores out of ±8; without it, out of ±6. The screener\'s market score uses the same signals.</p>' : '')+
+   (S.meta.zl ? '<p><b>Home values and rents: Zillow Research (ZHVI, ZORI).</b> ZHVI (typical home value, middle tier of single-family homes and condos, smoothed and seasonally adjusted) '+
+     (S.meta.zl.first.zv ? mlong(S.meta.zl.first.zv)+' – '+mlong(S.meta.zl.last.zv) : '')+'; ZORI (typical observed rent, all homes plus multifamily, smoothed) '+
+     (S.meta.zl.first.zr ? mlong(S.meta.zl.first.zr)+' – '+mlong(S.meta.zl.last.zr) : '')+'. Zillow posts mid-month, so its latest month can trail the listing data; tiles show Zillow\'s latest month. '+
+     'Gross rent yield = ZORI × 12 ÷ ZHVI; price-to-rent = ZHVI ÷ (ZORI × 12); list-to-value = realtor.com median list price ÷ ZHVI — all computed in your browser. ZORI covers far fewer zips than ZHVI, and Zillow publishes no state-level rents. '+
+     'Zillow\'s figures are smoothed and lag turning points, so they don\'t feed the market read.</p>' : '')+
    '<p><b>Screener</b> ranks every state, metro, county or zip on the same N-month trailing averages. Each YoY compares the trailing average with the same window 12 months earlier, so it matches the explorer tiles. The screener keeps the last 24 months, so YoY figures need a window of 12 months or less. Only places with active listings in the last 3 months are included. Market score uses the market read\'s six signals, benchmarked against the state for zips and counties and against the US for states and metros. A metro\'s state is its first-listed state. Price-reduced count is the number of active listings with a price cut that month.</p>'+
    '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';

@@ -2,7 +2,9 @@
 #   1. Download the five realtor.com Core Metrics *History* CSVs into raw\
 #   2. Download the five Redfin Housing Market Tracker files (national, state, metro, county, zip;
 #      all residential, monthly) into raw\Redfin\ and delete last month's copies
-#   3. Run:  .\refresh.ps1
+#   3. Download the Zillow Research ZHVI (zip, county, metro & U.S., state) and ZORI (zip, county,
+#      metro & U.S.) CSVs into raw\zillow\, replacing the old ones (Zillow posts mid-month)
+#   4. Run:  .\refresh.ps1
 # Builds site\d from raw\, verifies it, commits code changes to main, and publishes
 # site\ to the gh-pages branch (replaced each time, so the repo never accumulates old data).
 # Works in Windows PowerShell 5.1.
@@ -45,6 +47,9 @@ $zipShards = @(Get-ChildItem (Join-Path $root 'site\d\zip') -Filter *.json -Erro
 if ($zipShards -lt 90) { Fail "only $zipShards zip shards were built (expected ~99)" }
 if (-not $meta.hasUS) { Fail 'US data is missing - is RDC_Inventory_Core_Metrics_Country_History.csv in raw\?' }
 if (-not $meta.rs -or -not $meta.rs.places.us) { Fail 'Redfin closed-sales data is missing - are the Redfin files in raw\Redfin\?' }
+if (-not $meta.zl -or -not $meta.zl.places.us) { Fail 'Zillow data is missing - are the ZHVI/ZORI files in raw\zillow\?' }
+$zlLast = [string]$meta.zl.last.zv
+if ($zlLast -ne $latest) { Write-Host "Note: Zillow data ends $zlLast, realtor.com $latest (normal: Zillow posts mid-month)" -ForegroundColor Yellow }
 $rsLast = [string]$meta.rs.last
 if ($rsLast -ne $latest) { Write-Host "Note: Redfin data ends $rsLast, realtor.com $latest" -ForegroundColor Yellow }
 foreach ($f in 'cfpb_delinquency.json', 'zip_to_county.json') {

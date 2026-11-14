@@ -41,6 +41,38 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## Values & rents from Zillow (v06)
+
+Zillow Research's **ZHVI** (typical home value: middle tier of single-family homes and condos, smoothed and seasonally adjusted by Zillow) and **ZORI** (typical observed rent: all homes plus multifamily, smoothed), shown alongside realtor.com listings and Redfin closed sales.
+
+- **Files:** `raw/zillow/{Zip,County,Metro,State}_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv` and `raw/zillow/{Zip,County,Metro}_zori_uc_sfrcondomfr_sm_month.csv`. These are wide CSVs: identifying columns, then one column per month-end. `zillow.py` reshapes them to long form on our month axis (Jul 2016 onward). The Metro files also hold the United States row. There is no state ZORI, and the City ZORI file isn't used.
+- **Matching:**
+  - **Zips** by number.
+  - **Counties** by `StateCodeFIPS` + `MunicipalCodeFIPS`.
+  - **States** by name.
+  - **Metros** by principal city + state. A small fix handles Zillow's "Ca±on City" / "Espa±ola" spellings.
+- **Gaps:**
+  - **Dayton, OH and Poughkeepsie, NY** are missing from Zillow's metro ZHVI file, so they show rents only.
+  - **Connecticut counties:** the planning-region mismatch, as with Redfin.
+  - **ZORI covers far fewer places:** about 28% of active zips (75% of listings) and 43% of counties. Those show "No rent data (Zillow covers fewer zips)".
+- **Coverage (Oct 2026 build):** ZHVI covers 87% of active zips (99% of listings), 98% of counties, all states and 860 of 925 metros. ZORI covers 8,333 zips, 1,358 counties and 719 metros.
+- **Stored series:** `zv` (ZHVI $) and `zr` (ZORI $/month) in each place's file. The last 24 months go in `scr/<level>_zl.json`, which loads after the screener table appears.
+- **Derived in the browser, not stored:**
+  - gross rent yield = `zr*12/zv`
+  - price-to-rent = `zv/(zr*12)`
+  - list-to-value = realtor.com median list ÷ `zv`
+  - sale-to-value = Redfin median sale ÷ `zv`
+- **Explorer:**
+  - A "Values & rents (Zillow)" section with tiles for home value, rent, gross yield, price-to-rent and list-to-value. Each tile shows Zillow's latest month, YoY, trailing average, average YoY, and the state benchmark (or the US where the state has no figure, such as state rents).
+  - Charts: value vs list vs sale, rent with a YoY chart underneath, and gross yield vs benchmark.
+  - **No market-read signals:** Zillow is smoothed and lags turning points.
+- **Screener:**
+  - Columns: home value + YoY, rent + YoY, gross yield, list-to-value.
+  - Presets: highest rental yield, rents rising fastest, values falling, listed above value.
+  - A "Has rent data" checkbox.
+- **Validation:** the build compares Zillow's latest month for ZHVI (US, Georgia, DeKalb County, zip 30084) and ZORI (zip 77494) against the raw CSV cells, in both the place files and the screener, and fails on any mismatch.
+- **Size:** about +26 MB (344 → 370 MB on disk).
+
 ## Closed sales from Redfin (v05)
 
 Recorded sales from **Redfin, a national real estate brokerage** (Redfin Data Center, Housing Market Tracker), shown alongside the realtor.com listing data.
@@ -129,7 +161,13 @@ A map card under the place name zooms to the selected area and draws its outline
 
 2. In the Redfin Data Center (Housing Market Tracker, **All Residential, Monthly, All Metrics**), download the national, state, metro, county and zip files into `raw/Redfin/`. Then **delete last month's copies**. The build reads every `redfin_housing_market_monthly_all_<level>_*.csv` it finds and lets the newest file win on overlapping months, so an old file does no harm but wastes reading time. Don't open these in Excel either.
 
-3. In PowerShell, from this folder:
+3. From Zillow Research (Data → Housing Data), download into `raw/zillow/`, replacing last month's files:
+   - **ZHVI** (All Homes, smoothed, seasonally adjusted, mid-tier) at ZIP, County, Metro & U.S., and State.
+   - **ZORI** (All Homes Plus Multifamily, smoothed) at ZIP, County, and Metro & U.S.
+
+   Zillow posts mid-month, so its latest month is usually one behind realtor.com. The site shows Zillow's own latest month. The file names stay the same each month. If more than one file matches a level, the build uses the newest.
+
+4. In PowerShell, from this folder:
 
    ```powershell
    .\refresh.ps1
