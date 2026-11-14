@@ -178,6 +178,10 @@ body.scrmode #main, body.scrmode .xo{display:none!important}
 .stbl td b.zid{color:var(--gold);font-weight:700;margin-right:6px}
 .stbl td.c{text-align:left}
 .pill.sm{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;margin-left:6px}
+.srcl{font-family:"DM Sans",system-ui,sans-serif;font-size:14px;font-weight:500;color:var(--teal)}
+.rsnone{color:var(--ink2);margin-bottom:14px}
+.rsnone b{color:var(--ink)}
+.stbl td.nors{text-align:left;color:var(--muted);font-style:italic}
 .rbtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:999px;color:var(--teal);border:1px solid rgba(44,197,180,.5);background:rgba(44,197,180,.1);text-decoration:none}
 .rbtn:hover{background:rgba(44,197,180,.2);color:var(--ink)}
 .stbl a.rl{display:inline-block;color:var(--teal);text-decoration:none;font-size:13px;margin-right:7px;padding:0 3px;border-radius:4px;border:1px solid rgba(44,197,180,.4)}
@@ -240,7 +244,10 @@ body.scrmode #main, body.scrmode .xo{display:none!important}
 "use strict";
 const S = {meta:null, shards:{}, geos:{}, cur:null, cmp:null, N:3, win:0, bm:'parent', raw:true, charts:{}, usGeo:null};
 const C = {s1:'#BA8628', s2:'#139A8A', s3:'#8C7BF5', ref:'#8a93a8', grid:'rgba(255,255,255,.07)', tick:'#7f8bab'};
-const KEYS = ['p','a','f','s','al','nl','pl','tl','dom','prs','pis','pr','q'];
+// Redfin closed sales (rs_*): sale price, $/sq ft, homes sold, pending sales, months of supply,
+// days on market, sale-to-list, share sold above list, share off market in two weeks.
+const RS_KEYS = ['rs_p','rs_f','rs_n','rs_pend','rs_mos','rs_dom','rs_sl','rs_ab','rs_off2'];
+const KEYS = ['p','a','f','s','al','nl','pl','tl','dom','prs','pis','pr','q'].concat(RS_KEYS);
 const TYPE = {us:'US', state:'State', metro:'Metro', county:'County', zip:'Zip'};
 const $ = id => document.getElementById(id);
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -254,10 +261,14 @@ function decode(d){
   for (const k of KEYS){
     if (d[k] === undefined){ out[k] = new Array(L).fill(null); continue; }
     const f = k in sc ? 1/sc[k] : 1;
-    out[k] = d[k].split(',').map(v => v === '' ? null : (+v)*f);
+    if (S.meta.delta){   // each value is the change from the previous non-blank value
+      let prev = 0;
+      out[k] = d[k].split(',').map(v => v === '' ? null : (prev += +v)*f);
+    } else out[k] = d[k].split(',').map(v => v === '' ? null : (+v)*f);
   }
   return out;
 }
+const hasRS = d => d.rs_p.some(v => v !== null) || d.rs_n.some(v => v !== null);
 async function getJSON(u){ const r = await fetch(u); if (!r.ok) throw new Error(u+' → HTTP '+r.status); return r.json(); }
 function shardPath(type, id){
   if (type === 'us') return 'd/us.json';
@@ -274,7 +285,8 @@ async function getGeo(type, id){
   const sh = await loadShard(shardPath(type, id));
   const rec = sh[id];
   if (!rec) return null;
-  const g = {type, id, key, n:rec.n, st:rec.st || null, rk:rec.rk || null, hr:rec.hr || null, d:decode(rec.d), tc:{}};
+  const g = {type, id, key, n:rec.n, st:rec.st || null, rk:rec.rk || null, hr:rec.hr || null, rsx:rec.rsx || null, d:decode(rec.d), tc:{}};
+  g.rs = hasRS(g.d);
   S.geos[key] = g;
   return g;
 }
@@ -313,7 +325,9 @@ const fmt = {
   pct: v => !isNum(v) ? '–' : (v*100).toFixed(1)+'%',
   ratio: v => !isNum(v) ? '–' : v.toFixed(2),
   chg: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+'%',
-  pts: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+' pts'
+  pts: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+' pts',
+  mos: v => !isNum(v) ? '–' : v.toFixed(1),
+  mosd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)
 };
 // dir: +1 = rising favors sellers / tighter market, -1 = falling favors sellers, 0 = neutral
 function cls(v, dir){ if (!dir || !isNum(v) || Math.abs(v) < 0.0005) return 'nt'; return (v > 0) === (dir > 0) ? 'up' : 'dn'; }
@@ -456,6 +470,7 @@ function render(){
     kp('Pending ratio','pr',fmt.ratio,1)+
     kp('Median sq ft','s',fmt.num,0)+
   '</div>';
+  h += rsSection(g, parentGeo(g));
 
   const read = marketRead(g, pg);
   h += '<div class="grid2"><div class="card read"><h2>Market read</h2><div class="sub">'+N+'-month trailing averages'+(pg ? ' vs '+esc(geoTitle(pg)) : '')+' and vs a year ago'+
@@ -474,10 +489,16 @@ function render(){
     ['c_red','Price reductions vs increases','Share of active listings with a price cut / raise that month.'],
     ['c_pr','Pending ratio','Pending ÷ active listings. Higher = demand absorbing supply.'],
     ['c_yoy','Year-over-year change of the '+N+'M trailing average','Momentum: each line vs the same window a year earlier. Zero line = flat.'],
-    ['c_sq','Median listing size (sq ft)','Shifts here can move the median price without any real price change.'],
+    ['c_sq','Median listing size (sq ft)','Shifts here can move the median price without any real price change.']
+  ].concat(g.rs ? [
+    ['c_ls','List vs sale price','realtor.com median list price vs Redfin median sale price, '+N+'M trailing averages.'+(g.type === 'zip' ? ' Redfin zip figures are 3-mo rolling.' : '')],
+    ['c_stl','Sale-to-list and % sold above list','Average sale price ÷ final list price (left axis) and the share of homes that sold above list (right axis). Redfin.'],
+    ['c_sold','Homes sold vs pending sales','Closed sales and new pending contracts each month, from Redfin.'],
+    ['c_mos','Months of supply','Months it would take to sell current inventory at the current sales pace (Redfin). Green under 4 = seller\'s market, amber 4–6 = balanced, red over 6 = buyer\'s market.']
+  ] : []).concat([
     ['c_sp','Seasonality: median listing price','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).'],
     ['c_sa','Seasonality: active listings','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).']
-  ];
+  ]);
   defs.forEach(([id,t,n]) => { h += '<div class="card ch"><h3>'+t+'</h3><div class="note">'+n+'</div><div class="legend" id="lg_'+id+'"></div><div class="box"><canvas id="'+id+'"></canvas></div></div>'; });
   h += '</div>';
 
@@ -488,6 +509,80 @@ function render(){
   $('copy').onclick = () => copyCSV(g);
   renderMap(g);
   renderDistress(g);
+}
+
+// ---------- closed sales (Redfin) ----------
+function rsReason(g){
+  if (g.rsx === 'div') return 'Redfin reports this metro only by its metro divisions (groups of counties), so there\'s no closed-sales figure for the metro as a whole. Open one of its counties or zips to see closed sales.';
+  if (g.id === 'LA' || g.st === 'LA') return 'Redfin publishes no closed-sales data for Louisiana (it is a non-disclosure state, and Redfin\'s Louisiana series are blank).';
+  if (g.type === 'county' && g.id.startsWith('09')) return 'Connecticut replaced its counties with planning regions in 2022; Redfin still reports the old counties, so they can\'t be matched.';
+  return 'Redfin has no closed-sales data for this place — usually a small or rural area, or one Redfin doesn\'t list.';
+}
+function rsSection(g, pg){
+  const head = '<div class="sec"><h2>Closed sales <span class="srcl">(Redfin)</span></h2></div>';
+  if (!g.rs) return head+'<div class="card rsnone"><b>No closed-sales data</b><div class="sub">'+esc(rsReason(g))+'</div></div>';
+  const d = g.d, N = S.N, M = S.meta.months, li = M.length-1;
+  const bl = pg ? (pg.type === 'us' ? 'US' : pg.id)+' '+N+'M avg' : null;
+  const tile = (lab, k, f, dir, pts) => {
+    const v = d[k][li], v0 = d[k][li-12], tv = T(g,k)[li], ty = T(g,k)[li-12];
+    const ch = (a, b) => pts ? (isNum(a) && isNum(b) ? a-b : null) : (isNum(a) && b ? a/b-1 : null);
+    const cf = pts ? fmt.pts : fmt.chg, rawY = ch(v, v0), taY = ch(tv, ty);
+    const bv = pg && pg.rs ? T(pg,k)[li] : null;
+    return '<div class="card kpi"><div class="lab">'+lab+'</div><div class="val">'+f(v)+'</div>'+
+      '<div class="row"><span>YoY (month)</span><span class="'+cls(rawY,dir)+'">'+cf(rawY)+'</span></div>'+
+      '<div class="row"><span>'+N+'M trailing avg</span><span>'+f(tv)+'</span></div>'+
+      '<div class="row"><span>'+N+'M avg YoY</span><span class="'+cls(taY,dir)+'">'+cf(taY)+'</span></div>'+
+      (bl ? '<div class="row"><span>'+esc(bl)+'</span><span>'+f(bv)+'</span></div>' : '')+'</div>';
+  };
+  // Redfin sometimes leaves single figures blank for the latest month (e.g. Atlanta metro, Oct 2026).
+  const gaps = [['rs_p','sale price'],['rs_n','homes sold'],['rs_mos','months of supply'],['rs_sl','sale-to-list'],['rs_ab','% above list'],['rs_dom','days to sale']]
+    .filter(([k]) => d[k][li] === null && lastIdx(d[k]) >= 0).map(([, l]) => l);
+  return head+'<div class="sub" style="margin:-4px 0 10px">Recorded sales, not asking prices. Latest: '+mlong(M[li])+
+    (g.type === 'zip' ? ' · <b>Zip figures are 3-mo rolling</b>: each month covers that month and the two before it' : '')+
+    (gaps.length ? ' · <span class="dn">Redfin has no '+mlong(M[li])+' value for '+gaps.join(', ')+' — trailing averages use the months available</span>' : '')+'</div>'+
+    '<div class="kpis">'+
+    tile('Median sale price','rs_p',fmt.usd,1)+
+    tile('Homes sold','rs_n',fmt.num,1)+
+    tile('Months of supply','rs_mos',fmt.mos,-1)+
+    tile('Sale-to-list','rs_sl',fmt.pct,1,true)+
+    tile('% sold above list','rs_ab',fmt.pct,1,true)+
+    tile('Median days to sale','rs_dom',fmt.num,-1)+
+  '</div>';
+}
+// Shaded months-of-supply bands: under 4 seller's, 4–6 balanced, over 6 buyer's.
+const mosBands = {id:'mosBands', beforeDatasetsDraw(ch){
+  const {ctx, chartArea:a, scales:{y}} = ch;
+  const band = (lo, hi, col) => {
+    const top = y.getPixelForValue(Math.min(hi, y.max)), bot = y.getPixelForValue(Math.max(lo, y.min));
+    if (bot <= top) return;
+    ctx.save(); ctx.fillStyle = col; ctx.fillRect(a.left, top, a.right-a.left, bot-top); ctx.restore();
+  };
+  band(-1, 4, 'rgba(63,191,127,.10)'); band(4, 6, 'rgba(224,166,58,.09)'); band(6, 1e9, 'rgba(228,106,106,.09)');
+}};
+function drawRSCharts(g, bg){
+  const d = g.d, N = S.N, raw = S.raw;
+  const bl = bg && bg.rs ? geoTitle(bg)+' ('+N+'M avg)' : null;
+  const pair = (id, defs, f, min0, extra) => {
+    const ds = [], lg = [];
+    defs.forEach(([k, l, c, axis]) => {
+      if (raw) ds.push(Object.assign(rawDS(l, d[k], c), {pointRadius:0, borderWidth:1, borderDash:[2,3]}, axis ? {yAxisID:axis} : {}));
+      ds.push(Object.assign(lineDS(l+' ('+N+'M avg)', T(g,k), c), axis ? {yAxisID:axis} : {})); lg.push([c, l+' ('+N+'M avg)']);
+    });
+    if (raw) lg.push([C.tick, 'dotted = monthly', 1]);
+    mk(id, ds, f, min0, lg, extra);
+  };
+  pair('c_ls', [['p','List price (realtor.com)',C.s1], ['rs_p','Sale price (Redfin)',C.s2]], fmt.usd, false);
+  pair('c_stl', [['rs_sl','Sale-to-list',C.s2], ['rs_ab','% sold above list',C.s3,'y1']], v => (v*100).toFixed(1)+'%', false, o => {
+    o.scales.y.grid.color = c => Math.abs(c.tick.value-1) < 1e-9 ? 'rgba(255,255,255,.45)' : C.grid;
+    o.scales.y1 = {position:'right', beginAtZero:true, grid:{display:false}, border:{display:false}, ticks:{color:C.tick, callback:v => Math.round(v*100)+'%', maxTicksLimit:6}};
+  });
+  pair('c_sold', [['rs_n','Homes sold',C.s2], ['rs_pend','Pending sales',C.s3]], fmt.num, true);
+  { const ds = [], lg = [];
+    if (raw){ ds.push(rawDS('Months of supply', d.rs_mos, C.s1)); lg.push([C.s1, 'Monthly']); }
+    ds.push(lineDS('Months of supply ('+N+'M avg)', T(g,'rs_mos'), C.s2)); lg.push([C.s2, N+'-month trailing avg']);
+    if (bl){ ds.push(refDS(bl, T(bg,'rs_mos'))); lg.push([C.ref, bl, 1]); }
+    mk('c_mos', ds, fmt.mos, true, lg, o => { o._plugins = [mosBands]; });
+  }
 }
 
 // ---------- location map ----------
@@ -814,6 +909,13 @@ function marketRead(g, pg){
   if (isNum(dom) && d0){ const c = dom/d0-1; add(c < -0.10 ? 1 : c > 0.10 ? -1 : 0, 'Days on market '+fmt.chg(c)+' YoY ('+Math.round(d0)+' → '+Math.round(dom)+' days).'); }
   const f = T(g,'f')[li], f0 = T(g,'f')[li-12];
   if (isNum(f) && f0){ const c = f/f0-1; add(c > 0.03 ? 1 : c < -0.02 ? -1 : 0, 'Price per sq ft '+fmt.chg(c)+' YoY ($'+Math.round(f0)+' → $'+Math.round(f)+').'); }
+  // Two closed-sales signals when Redfin covers this place (score out of ±8 instead of ±6).
+  if (g.rs){
+    const mos = T(g,'rs_mos')[li];
+    if (isNum(mos)) add(mos < 4 ? 1 : mos > 6 ? -1 : 0, 'Months of supply '+mos.toFixed(1)+' (Redfin; under 4 = seller\'s market, over 6 = buyer\'s).');
+    const sl = T(g,'rs_sl')[li];
+    if (isNum(sl)) add(sl >= 1 ? 1 : sl < 0.97 ? -1 : 0, 'Sale-to-list '+(sl*100).toFixed(1)+'% (Redfin; 100%+ = selling at or over asking, under 97% = well below).');
+  }
   const score = items.reduce((a,b) => a+b.s, 0), max = items.length;
   let label = 'Balanced', c = 'bal';
   if (!max) label = 'Not enough data';
@@ -868,7 +970,8 @@ function mk(id, datasets, yfmt, yMin0, legend, extra, labels){
   if (S.charts[id]) S.charts[id].destroy();
   datasets.forEach(ds => { if (!ds.segment) ds.segment = gapSegment(ds.data); });
   const o = baseOpts(yfmt, yMin0); if (extra) extra(o);
-  S.charts[id] = new Chart($(id), {type:'line', data:{labels:labels || sl(S.meta.months).map(mlab), datasets}, options:o});
+  const plugins = o._plugins || []; delete o._plugins;
+  S.charts[id] = new Chart($(id), {type:'line', data:{labels:labels || sl(S.meta.months).map(mlab), datasets}, options:o, plugins});
   if (legend) $('lg_'+id).innerHTML = legendHTML(legend);
 }
 
@@ -917,6 +1020,7 @@ function drawCharts(g, bg){
       o.scales.y.grid.lineWidth = c => c.tick.value === 0 ? 1.5 : 1;
     });
   }
+  if (g.rs) drawRSCharts(g, bg);
   seasonal('c_sp', d.p, fmt.usd);
   seasonal('c_sa', d.al, fmt.num);
   drawDistressChart();
@@ -985,7 +1089,7 @@ function copyCSV(g){
 // Ranks every place at one level from d/scr/<level>.json (last 24 months, delta-encoded, same scaling
 // as the explorer). Every figure is the N-month trailing average from the shared box; every YoY compares
 // that average with the same window 12 months earlier, exactly like the explorer tiles.
-const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0};
+const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0, rsFiles:{}, rsData:{}, rsFail:{}};
 const SCR_PLURAL = {state:'states', metro:'metros', county:'counties', zip:'zips'};
 // [key, header, formatter, color direction (+1 rising = tighter for sellers, -1 falling = tighter, 0 = none)]
 const SCOLS = [
@@ -997,8 +1101,14 @@ const SCOLS = [
   ['prs','Price-reduced share',fmt.pct,0], ['prsY','Reduced share YoY',fmt.pts,-1],
   ['prc','Price-reduced count',fmt.num,0], ['prcY','Reduced count YoY',fmt.chg,-1],
   ['pr','Pending ratio',fmt.ratio,0], ['prY','Pending ratio YoY',fmt.chg,1],
+  // Redfin closed sales (loaded from scr/<level>_rs.json after the table first appears)
+  ['rs_p','Median sale price',fmt.usd,0], ['rs_pY','Sale price YoY',fmt.chg,1],
+  ['rs_n','Homes sold',fmt.num,0], ['rs_nY','Homes sold YoY',fmt.chg,1],
+  ['rs_mos','Months of supply',fmt.mos,0], ['rs_sl','Sale-to-list',fmt.pct,0],
+  ['gap','List-to-sale gap',fmt.chg,0],
   ['score','Market score',null,0]
 ];
+const SCR_RS_COLS = new Set(['rs_p','rs_pY','rs_n','rs_nY','rs_mos','rs_sl','gap']);
 // Presets set the sort only. dir -1 = highest first, +1 = lowest first.
 const PRESETS = [
   ['Levels','Highest price','p',-1], ['Levels','Lowest price','p',1], ['Levels','Highest $/sq ft','f',-1],
@@ -1007,7 +1117,10 @@ const PRESETS = [
   ['Levels','Selling fastest','dom',1], ['Levels','Slowest selling','dom',-1],
   ['Changes','Price cuts rising fastest','prsY',-1], ['Changes','Biggest inventory build','alY',-1],
   ['Changes','Fastest price gains','pY',-1], ['Changes','Prices falling','pY',1],
-  ['Changes','Cooling fastest','domY',-1], ['Changes','Hottest','score',-1]
+  ['Changes','Cooling fastest','domY',-1], ['Changes','Hottest','score',-1],
+  ['Closed sales','Lowest months of supply','rs_mos',1], ['Closed sales','Selling over asking','rs_sl',-1],
+  ['Closed sales','Sales volume falling fastest','rs_nY',1], ['Closed sales','Highest sale price','rs_p',-1],
+  ['Closed sales','Most homes sold','rs_n',-1], ['Closed sales','Biggest list-to-sale gap','gap',-1]
 ];
 function loadScr(level){
   return SCR.files[level] || (SCR.files[level] = getJSON('d/scr/'+level+'.json').then(o => {
@@ -1025,13 +1138,31 @@ function loadScr(level){
     return {start:o.start, rows};
   }).catch(e => { delete SCR.files[level]; throw e; }));
 }
+// Redfin columns for the screener: {id: {rs_p:[...], ...}} on the same 24-month window.
+function loadScrRs(level){
+  return SCR.rsFiles[level] || (SCR.rsFiles[level] = getJSON('d/scr/'+level+'_rs.json').then(o => {
+    const sc = S.meta.scale, out = {};
+    for (const id in o.rows){
+      const d = {};
+      o.keys.forEach((k, j) => {
+        const s = o.rows[id][j], f = k in sc ? 1/sc[k] : 1;
+        if (!s){ d[k] = null; return; }
+        let prev = 0;
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v)*f);
+      });
+      out[id] = d;
+    }
+    SCR.rsData[level] = out;
+    return out;
+  }).catch(e => { delete SCR.rsFiles[level]; SCR.rsFail[level] = e.message; throw e; }));
+}
 // Latest trailing average and the one 12 months earlier (null when the 24-month file can't cover it).
 function tNowAgo(arr, N){
   if (!arr) return [null, null];
   const t = trailing(arr, N), li = arr.length-1;
   return [t[li], li >= 12 ? t[li-12] : null];
 }
-function scrRow(r, N){
+function scrRow(r, N, rd){
   const x = {id:r.id, n:r.n, st:r.st};
   const ch = (a, b) => isNum(a) && b ? a/b-1 : null;
   for (const k of ['p','f','al','nl','dom','prs','prc','pr']){
@@ -1039,9 +1170,16 @@ function scrRow(r, N){
     x[k] = now;
     x[k+'Y'] = k === 'prs' ? (isNum(now) && isNum(ago) ? now-ago : null) : ch(now, ago);
   }
+  if (rd){
+    const [p, p0] = tNowAgo(rd.rs_p, N), [n, n0] = tNowAgo(rd.rs_n, N);
+    x.rs_p = p; x.rs_pY = ch(p, p0); x.rs_n = n; x.rs_nY = ch(n, n0);
+    x.rs_mos = tNowAgo(rd.rs_mos, N)[0]; x.rs_sl = tNowAgo(rd.rs_sl, N)[0];
+    x.gap = isNum(x.p) && x.rs_p ? x.p/x.rs_p-1 : null;   // how far asking prices sit above recent sale prices
+    x.hasRS = [x.rs_p, x.rs_n, x.rs_mos, x.rs_sl].some(isNum);
+  }
   return x;
 }
-// The explorer's six market-read signals, scored the same way.
+// The explorer's market-read signals, scored the same way (six listing signals + two Redfin ones).
 function scrScore(x, b){
   let s = 0, n = 0;
   const add = v => { s += v; n++; };
@@ -1053,10 +1191,14 @@ function scrScore(x, b){
   if (isNum(x.alY)) add(x.alY < -0.05 ? 1 : x.alY > 0.15 ? -1 : 0);
   if (isNum(x.domY)) add(x.domY < -0.10 ? 1 : x.domY > 0.10 ? -1 : 0);
   if (isNum(x.fY)) add(x.fY > 0.03 ? 1 : x.fY < -0.02 ? -1 : 0);
+  // The explorer's two closed-sales signals, when Redfin covers the place.
+  if (isNum(x.rs_mos)) add(x.rs_mos < 4 ? 1 : x.rs_mos > 6 ? -1 : 0);
+  if (isNum(x.rs_sl)) add(x.rs_sl >= 1 ? 1 : x.rs_sl < 0.97 ? -1 : 0);
   return n ? s : null;
 }
 async function scrCalc(level, N){
-  const key = level+'|'+N;
+  const rsd = SCR.rsData[level] || null;
+  const key = level+'|'+N+'|'+(rsd ? 'rs' : '');
   if (SCR.calc[key]) return SCR.calc[key];
   const file = await loadScr(level);
   // Benchmark: parent state (from the state screener file) for zips and counties; the US for states and metros.
@@ -1070,7 +1212,7 @@ async function scrCalc(level, N){
     ['dom','prs','pr'].forEach(k => u[k] = T(S.usGeo, k)[li]);
     bench = () => u;
   }
-  const out = file.rows.map(r => { const x = scrRow(r, N); x.score = scrScore(x, bench(x)); return x; });
+  const out = file.rows.map(r => { const x = scrRow(r, N, rsd ? (rsd[r.id] || {}) : null); x.score = scrScore(x, bench(x)); return x; });
   SCR.calc = {}; SCR.calc[key] = out;   // keep one level/window at a time
   return out;
 }
@@ -1088,7 +1230,7 @@ function buildScrUI(){
     '<div class="ctl"><label class="l">Show top</label><div class="seg" id="stop">'+
       [50,100,250].map(n => '<button data-v="'+n+'"'+(n === SCR.top ? ' class="on"' : '')+'>'+n+'</button>').join('')+'</div></div>'+
     '</div>';
-  ['Levels','Changes'].forEach(g => {
+  ['Levels','Changes','Closed sales'].forEach(g => {
     h += '<div class="presets"><span class="pl">'+g+'</span>'+PRESETS.map((p, i) => p[0] === g ? '<button class="chip" data-i="'+i+'">'+p[1]+'</button>' : '').join('')+'</div>';
   });
   h += '</div><div class="sstat"><span id="sstat">Loading…</span><button class="btn" id="scopy">Copy table as CSV</button></div>'+
@@ -1120,6 +1262,10 @@ async function refreshScr(){
   try { all = await scrCalc(level, N); }
   catch(e){ if (my === SCR.seq){ $('sstat').textContent = 'Could not load screener data ('+e.message+').'; $('stbl').innerHTML = ''; } return; }
   if (my !== SCR.seq) return;
+  // Closed-sales columns arrive in a second file; show the listing table first, then fill them in.
+  if (!SCR.rsData[level] && !SCR.rsFail[level]){
+    loadScrRs(level).then(() => { if (SCR.level === level && S.mode === 'screener') refreshScr(); }, () => { if (SCR.level === level) refreshScr(); });
+  }
   const f = all.filter(x =>
     (!SCR.st || x.st === SCR.st) &&
     (!SCR.minAl || (isNum(x.al) && x.al >= SCR.minAl)) &&
@@ -1138,12 +1284,15 @@ async function refreshScr(){
   const M = S.meta.months;
   $('sstat').innerHTML = 'Showing <b>'+SCR.shown.length.toLocaleString()+'</b> of <b>'+f.length.toLocaleString()+'</b> '+SCR_PLURAL[level]+
     (SCR.st ? ' in '+esc(SCR.st) : '')+' · '+N+'-month averages · '+mlong(M[M.length-1])+
+    (level === 'zip' ? ' · Redfin zip sales are 3-mo rolling' : '')+
+    (!SCR.rsData[level] && !SCR.rsFail[level] ? ' · <span style="color:var(--muted)">loading closed-sales columns…</span>' : '')+
+    (SCR.rsFail[level] ? ' · <span class="dn">closed-sales columns didn\'t load</span>' : '')+
     (N > 12 ? '<div class="snote">YoY columns need a trailing average of 12 months or less — the screener keeps the last 24 months.</div>' : '');
   $('scrv').querySelectorAll('.presets .chip').forEach(b => { const p = PRESETS[+b.dataset.i]; b.classList.toggle('on', p[2] === k && p[3] === dir); });
   drawScrTable();
 }
 function drawScrTable(){
-  const {k, dir} = SCR.sort, lv = SCR.level;
+  const {k, dir} = SCR.sort, lv = SCR.level, rsReady = !!SCR.rsData[lv];
   const th = (key, lab) => '<th class="s'+(key === k ? ' on' : '')+'" data-k="'+key+'" title="Sort">'+lab+(key === k ? '<span class="ar">'+(dir < 0 ? '▼' : '▲')+'</span>' : '')+'</th>';
   let h = '<table><thead><tr>'+th('n','Name')+th('st','State')+SCOLS.map(c => th(c[0], c[1])).join('')+'</tr></thead><tbody>';
   if (!SCR.shown.length) h += '<tr><td colspan="'+(SCOLS.length+2)+'" style="text-align:left;color:var(--muted)">Nothing matches these filters.</td></tr>';
@@ -1156,6 +1305,10 @@ function drawScrTable(){
         if (key === 'score'){
           const sl = scoreLabel(x.score);
           return '<td>'+(sl ? (x.score > 0 ? '+' : '')+x.score+'<span class="pill sm '+sl[1]+'">'+sl[0]+'</span>' : '–')+'</td>';
+        }
+        if (SCR_RS_COLS.has(key)){
+          if (!rsReady) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">'+(SCR.rsFail[lv] ? 'Closed-sales data didn\'t load' : 'Loading closed sales…')+'</td>' : '';
+          if (!x.hasRS) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">No closed-sales data</td>' : '';
         }
         return '<td'+(d ? ' class="'+cls(x[key], d)+'"' : '')+'>'+f(x[key])+'</td>';
       }).join('')+'</tr>';
@@ -1235,7 +1388,7 @@ function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'b
 function renderNotes(){
   const M = S.meta.months;
   $('notes').innerHTML =
-   '<p><b>Version v03.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   '<p><b>Version v05.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
    'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
    '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
    '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
@@ -1243,6 +1396,12 @@ function renderNotes(){
    '<p><b>Colors on tiles</b>: green = the change points to a tighter / stronger market for sellers, red = softer. Shares change in percentage points. Median sq ft is not colored.</p>'+
    '<p><b>Percentile ranks</b> compare a zip or county with the others in its state for the latest month (100 = highest value, not necessarily "best"). For zips without a name in the source, the state is inferred from the first three digits.</p>'+
    '<p><b>Mortgage Distress</b> shows the share of mortgages 30–89 days and 90+ days delinquent, from the CFPB Mortgage Performance Trends data (National Mortgage Database). It is <b>county-level</b>, not zip-level: each zip uses the county holding the largest share of its land area (Census 2020 zip-area-to-county file). CFPB only publishes counties with at least 1,000 sampled mortgages; elsewhere the panel says so and shows the state series. CFPB data are published with a lag of several months.</p>'+
+   (S.meta.rs ? '<p><b>Closed-sales data: Redfin, a national real estate brokerage</b> (Redfin Data Center, Housing Market Tracker, all residential, not seasonally adjusted), '+
+     (S.meta.rs.first ? mlong(S.meta.rs.first)+' – '+mlong(S.meta.rs.last) : '')+'. Listing data: realtor.com, '+mlong(M[0])+' – '+mlong(M[M.length-1])+'. '+
+     'Sale prices are recorded closing prices; list prices are asking prices, so the two differ by design. Redfin\'s zip figures are <b>3-month rolling</b> (each month covers that month and the two before it); everything else is monthly. '+
+     'Sale prices aren\'t public record in some non-disclosure states (e.g. TX, UT), so Redfin\'s coverage there comes from MLS data and is thinner; Redfin publishes nothing for Louisiana. '+
+     'Redfin reports the 11 largest metros only by their metro divisions, so those metros show no closed-sales figures (their counties and zips do). Counties are matched by name, metros by principal city. '+
+     'With Redfin data, the market read adds two signals — months of supply (under 4 → +1, over 6 → −1) and sale-to-list (100%+ → +1, under 97% → −1) — and scores out of ±8; without it, out of ±6. The screener\'s market score uses the same signals.</p>' : '')+
    '<p><b>Screener</b> ranks every state, metro, county or zip on the same N-month trailing averages. Each YoY compares the trailing average with the same window 12 months earlier, so it matches the explorer tiles. The screener keeps the last 24 months, so YoY figures need a window of 12 months or less. Only places with active listings in the last 3 months are included. Market score uses the market read\'s six signals, benchmarked against the state for zips and counties and against the US for states and metros. A metro\'s state is its first-listed state. Price-reduced count is the number of active listings with a price cut that month.</p>'+
    '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';

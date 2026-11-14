@@ -41,6 +41,46 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## Closed sales from Redfin (v05)
+
+Recorded sales from **Redfin, a national real estate brokerage** (Redfin Data Center, Housing Market Tracker), shown alongside the realtor.com listing data.
+
+- **Files:** `raw/Redfin/redfin_housing_market_monthly_all_{country,states,metros,counties,zips}_<range>.csv`. These are plain CSVs, about 1.8 GB in total, read in chunks by `redfin.py`. A level split across several date-range files is combined, and the newest file wins on duplicate months. The cities file isn't used.
+- **Rows used:** unadjusted only (`IS SEASONALLY ADJUSTED = false`). The files have no property-type column; they are the All Residential download. Each period goes on the month axis by its period-end month. **Zip rows are Redfin's rolling 3-month periods**, kept as-is and labelled "3-mo rolling" in the app.
+- **Series** (stored in each place's file as `rs_*` keys; percents stored as fractions ×10,000):
+  - `rs_p` median sale price
+  - `rs_f` sale $/sq ft
+  - `rs_n` homes sold
+  - `rs_pend` pending sales
+  - `rs_mos` months of supply (×10)
+  - `rs_dom` median days on market
+  - `rs_sl` sale-to-list ratio
+  - `rs_ab` share sold above list
+  - `rs_off2` share off market in two weeks
+
+  The screener gets `rs_p`, `rs_n`, `rs_mos` and `rs_sl` in a separate `scr/<level>_rs.json`, which loads after the listing table appears. Redfin's files have no "price drops" column.
+- **Matching to realtor.com places:**
+  - **Zips** by number.
+  - **States** by name ("Columbia" = DC).
+  - **Counties** by normalized name + state, with a fixed exceptions table in `redfin.py` (independent cities, `&`/`And`, Doña Ana, Carson City, Alaska boroughs).
+  - **Metros** by principal city + state.
+- **Gaps:**
+  - **Louisiana:** Redfin's series are all blank.
+  - **Connecticut counties:** realtor.com uses the 2022 planning regions; Redfin uses the old counties.
+  - **The 11 largest metros:** Boston, Chicago, Dallas, Detroit, Los Angeles, Miami, New York, Philadelphia, San Francisco, Seattle and Washington. Redfin reports them only by metro division, so they show "No closed-sales data" (their counties and zips have it).
+  - **Small rural places** Redfin doesn't cover.
+  - Coverage of places with recent listings (Oct 2026): states 50/51, counties 97%, zips 95%, metros 92%. Sale prices aren't public record in some non-disclosure states (e.g. TX, UT), so coverage there is thinner.
+- **Explorer:**
+  - A "Closed sales (Redfin)" section with six tiles (sale price, homes sold, months of supply, sale-to-list, % sold above list, days to sale). Each tile also shows the parent state's trailing average.
+  - Four charts: list vs sale price, sale-to-list and % above list, homes sold vs pending, and months of supply with seller/balanced/buyer bands.
+  - Two extra market-read signals: months of supply (<4 → +1, >6 → −1) and sale-to-list (≥100% → +1, <97% → −1). The score is out of ±8 with Redfin data, ±6 without.
+- **Screener:**
+  - Columns: sale price + YoY, homes sold + YoY, months of supply, sale-to-list, and list-to-sale gap (median list ÷ median sale − 1).
+  - Presets: lowest months of supply, selling over asking, sales volume falling fastest, highest sale price, most homes sold, biggest list-to-sale gap.
+  - The market score includes the two Redfin signals.
+- **Validation:** the build compares the latest month (sale price, homes sold, months of supply, sale-to-list) for the US, Georgia, DeKalb County and zip 30084 against the raw Redfin rows, in both the place files and the screener, and fails on any mismatch.
+- **Size:** every series in the place files is now delta-encoded (`meta.delta`), which is lossless. With Redfin, `site/d` is about 344 MB on disk, about 121 MB as served (compressed). It was 235 MB before Redfin.
+
 ## realtor.com links
 
 Each place has a **Homes for sale on realtor.com ↗** button in the explorer header, and a ⌂ icon on each screener row. Both open realtor.com's search for that area in a new tab. On a phone with the realtor.com app installed, the link usually opens in the app. Listings can't be shown inside this site: realtor.com has no public listings feed and blocks embedding, and showing listings directly would need an MLS/IDX license.
@@ -87,7 +127,9 @@ A map card under the place name zooms to the selected area and draws its outline
 
    **Never open or save these in Excel.** It cuts off rows and strips leading zeros from zips. If your browser saves a file as `... (1).csv`, the build still finds it and reminds you to rename it.
 
-2. In PowerShell, from this folder:
+2. In the Redfin Data Center (Housing Market Tracker, **All Residential, Monthly, All Metrics**), download the national, state, metro, county and zip files into `raw/Redfin/`. Then **delete last month's copies**. The build reads every `redfin_housing_market_monthly_all_<level>_*.csv` it finds and lets the newest file win on overlapping months, so an old file does no harm but wastes reading time. Don't open these in Excel either.
+
+3. In PowerShell, from this folder:
 
    ```powershell
    .\refresh.ps1
@@ -108,4 +150,4 @@ python -m http.server 8765 --directory site       # then open http://localhost:8
 
 ## Requirements
 
-Python 3.12 + pandas, Git, and the GitHub CLI (`gh auth login`). Node is optional; it's only used for `node --check`.
+Python 3.12 + pandas, Git, and the GitHub CLI (`gh auth login`). Node is optional; it's only used for `node --check`. A full build takes about 2 minutes with the Redfin files.
