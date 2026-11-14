@@ -41,6 +41,15 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## Location map (v03)
+
+A map card under the place name zooms to the selected area and draws its outline in gold. A dashed outline gives context: a zip's main county, or the state of a county or metro. A comparison place is outlined in violet.
+
+- **Outlines** are fetched live from the US Census TIGERweb service when you open a place: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. Nothing is added to the build or the repo, and there's nothing to refresh.
+- **Pick on the map:** zoom in past about city level and every zip in view is outlined in teal (hover for its number and town). Click any spot and a menu lists the zip, county, metro and state there that have realtor.com data. Choose one to open it. This uses Census point and area lookups, also live.
+- **Basemap:** Esri dark gray canvas tiles (no API key needed). The map library is Leaflet 1.9.4 from cdnjs.
+- **Known gap:** about 1,800 of the 34,271 zips (PO-box and single-building zips) have no Census area. For those, the map shows the county or state and says why.
+
 ## Monthly refresh
 
 1. In the realtor.com Data Library, download the five monthly **History** files into `raw/`, replacing the old ones:

@@ -14,6 +14,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{
   --bg:#0a1324; --surface:#0f1a30; --glass:rgba(255,255,255,.045); --glass2:rgba(255,255,255,.08);
@@ -117,6 +119,38 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
 .mdn{color:var(--ink);font-weight:700}
 .mdnote{font-size:12.5px;color:var(--ink2);margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
 .mdnote.w{color:var(--warn);border-color:rgba(224,166,58,.35)}
+/* Location map. z-index:0 makes its own stacking context so Leaflet's panes stay under the search dropdowns. */
+.mapc.card{padding:0;overflow:hidden;margin-bottom:14px;position:relative;z-index:0}
+.mapc .mh{display:flex;justify-content:space-between;gap:6px 14px;align-items:baseline;flex-wrap:wrap;padding:12px 16px 10px}
+.mapc .mh h2{margin:0}
+.mapc .mlg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2)}
+.mapc .mlg span{display:inline-flex;align-items:center;gap:6px}
+.mapc .mlg i{display:inline-block;width:16px;height:10px;border-radius:2px;border:2px solid}
+.mapc .mlg i.ctx{border-style:dashed;border-color:var(--ref);background:transparent}
+.mapc .mnote{font-size:12.5px;color:var(--warn);padding:0 16px 10px}
+.mapc .mstat{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);z-index:500;background:rgba(10,19,36,.85);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:13px;color:var(--ink2);pointer-events:none}
+#map{height:320px;background:#0b1428}
+@media(max-width:600px){#map{height:250px}}
+.leaflet-container{font:inherit}
+.leaflet-container .leaflet-control-attribution{background:rgba(10,19,36,.78);color:var(--muted);font-size:10.5px}
+.leaflet-container .leaflet-control-attribution a{color:var(--ink2)}
+.leaflet-bar a,.leaflet-bar a:hover{background:#101c35;color:var(--ink);border-bottom-color:var(--line)}
+.leaflet-bar{border:1px solid var(--line)!important}
+.mapc .mhint{font-size:12px;color:var(--muted);padding:7px 16px 9px;border-top:1px solid var(--line)}
+.mpick .leaflet-popup-content-wrapper{background:#101c35;color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.mpick .leaflet-popup-tip{background:#101c35}
+.mpick .leaflet-popup-content{margin:10px 10px 8px;font:inherit;font-size:13px;min-width:220px}
+.mpick a.leaflet-popup-close-button{color:var(--muted)}
+.mpick .pk-h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 22px 6px 4px}
+.mpick button.pk{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;background:transparent;border:0;border-radius:8px;color:var(--ink);font:inherit;padding:7px 6px;cursor:pointer}
+.mpick button.pk:hover{background:rgba(44,197,180,.12)}
+.mpick button.pk.on{cursor:default;opacity:.7}
+.mpick .pk-t{flex:0 0 48px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--teal)}
+.mpick .pk-n{flex:1;min-width:0}
+.mpick .pk-n b{color:var(--gold)}
+.mpick .pk-on{font-size:11px;color:var(--gold)}
+.mpick .pk-x{font-size:11.5px;color:var(--muted);margin:6px 4px 0}
+.leaflet-tooltip.mtip{background:#101c35;border:1px solid var(--line);color:var(--ink);box-shadow:none;font:inherit;font-size:12px}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#13223f;border:1px solid var(--teal);padding:10px 16px;border-radius:10px;font-size:13px;display:none;z-index:50;max-width:calc(100% - 32px)}
 </style>
 </head>
@@ -377,6 +411,7 @@ function render(){
     (qFlags ? '<span class="badge">⚑ '+qFlags+' month'+(qFlags > 1 ? 's' : '')+' flagged by realtor.com</span>' : '')+
     '</div></div>';
 
+  h += '<div id="mapbox"></div>';
   h += '<div class="kpis">'+
     kp('Median list price','p',fmt.usd,1)+
     kp('Median $ / sq ft','f',fmt.psf,1)+
@@ -417,7 +452,196 @@ function render(){
   drawCharts(g, bg);
   drawTable(g);
   $('copy').onclick = () => copyCSV(g);
+  renderMap(g);
   renderDistress(g);
+}
+
+// ---------- location map ----------
+// Outlines come from the Census TIGERweb service at view time (GeoJSON, simplified server-side),
+// so no boundary files live in the repo. Basemap tiles: Esri dark gray canvas.
+const TIGER = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_Current/MapServer/';
+const US48 = [[24.4,-125.0],[49.5,-66.9]];
+const bndP = {};
+function bndQueries(type, id){
+  if (!/^[0-9A-Za-z]+$/.test(id)) return [];
+  const eq = "GEOID='"+id+"'";
+  if (type === 'zip') return [[2, eq, 0.0002]];          // 2020 ZCTAs
+  if (type === 'county') return [[82, eq, 0.0005]];
+  if (type === 'metro') return [[93, eq, 0.002], [91, eq, 0.002]];   // metropolitan, then micropolitan
+  if (type === 'state') return [[80, "STUSAB='"+id+"'", 0.005]];
+  return [];
+}
+async function fetchBoundary(type, id){
+  for (const [layer, where, simp] of bndQueries(type, id)){
+    const u = TIGER+layer+'/query?'+new URLSearchParams({where, outFields:'GEOID', outSR:'4326', maxAllowableOffset:simp, geometryPrecision:'5', f:'geojson'});
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(u, {signal:ctl.signal});
+      if (!r.ok) throw new Error('Census map service: HTTP '+r.status);
+      const j = await r.json();
+      if (j.error) throw new Error('Census map service: '+(j.error.message || 'error'));
+      if (j.features && j.features.length) return j;
+    } catch(e){ throw e.name === 'AbortError' ? new Error('the Census map service timed out') : e; }
+    finally { clearTimeout(t); }
+  }
+  return null;   // no outline for this geography (e.g. a PO-box zip)
+}
+function getBoundary(type, id){
+  const k = type+'-'+id;
+  return bndP[k] || (bndP[k] = fetchBoundary(type, id).catch(e => { delete bndP[k]; throw e; }));
+}
+// What to draw: the main outline, a dashed context outline around it, and an optional fallback.
+async function mapPlan(g){
+  const plan = {main:null, ctx:null, note:null, ctxLabel:null};
+  if (g.type === 'us') return plan;
+  const stName = st => { const s = stateGeo(st); return s ? s.n : st; };
+  plan.main = await getBoundary(g.type, g.id);
+  if (g.type === 'zip'){
+    let fips = null;
+    try { const z = await loadZ2C(); fips = z[g.id] ? z[g.id][0] : null; } catch(e){}
+    if (fips){ plan.ctx = await getBoundary('county', fips).catch(() => null); plan.ctxLabel = countyLabel(fips, S.cfpb && S.cfpb.counties[fips]); }
+    else if (g.st){ plan.ctx = await getBoundary('state', g.st).catch(() => null); plan.ctxLabel = stName(g.st); }
+    if (!plan.main) plan.note = 'Zip '+g.id+' has no mapped area in the Census zip-area (ZCTA) file — usually a PO-box or single-building zip. Showing '+(plan.ctxLabel || 'its state')+' instead.';
+  } else if ((g.type === 'county' || g.type === 'metro') && g.st){
+    plan.ctx = await getBoundary('state', g.st).catch(() => null); plan.ctxLabel = stName(g.st);
+    if (!plan.main) plan.note = 'Census has no outline for '+TYPE[g.type].toLowerCase()+' '+g.id+'. Showing '+plan.ctxLabel+' instead.';
+  } else if (!plan.main) plan.note = 'Census has no outline for '+geoTitle(g)+'.';
+  return plan;
+}
+function mapKey(){ return geoKey(S.cur)+'|'+(S.cmp ? geoKey(S.cmp) : ''); }
+function idxRow(type, id){
+  if (!S.idxMap){ S.idxMap = new Map(); S.meta.idx.forEach(r => S.idxMap.set(r[0]+'-'+r[1], r)); }
+  return S.idxMap.get(type+'-'+id) || null;
+}
+async function tigerQuery(layer, params){
+  const u = TIGER+layer+'/query?'+new URLSearchParams(Object.assign({inSR:'4326', spatialRel:'esriSpatialRelIntersects'}, params));
+  const r = await fetch(u); if (!r.ok) throw new Error('HTTP '+r.status);
+  const j = await r.json(); if (j.error) throw new Error(j.error.message || 'error');
+  return j;
+}
+// Everything at a clicked point that exists in our data: zip, county, metro, state.
+async function placesAt(ll){
+  const pt = {geometry:ll.lng.toFixed(5)+','+ll.lat.toFixed(5), geometryType:'esriGeometryPoint', returnGeometry:'false', f:'json'};
+  const q = (layer, fields) => tigerQuery(layer, Object.assign({outFields:fields}, pt)).then(j => j.features.map(f => f.attributes)).catch(() => []);
+  const [z, c, m1, m2, s] = await Promise.all([q(2,'GEOID'), q(82,'GEOID'), q(93,'GEOID'), q(91,'GEOID'), q(80,'STUSAB')]);
+  const out = [];
+  const add = (type, id) => { const r = idxRow(type, id); if (r) out.push({type, id, name:r[2]}); };
+  z.forEach(a => add('zip', a.GEOID)); c.forEach(a => add('county', a.GEOID));
+  m1.concat(m2).forEach(a => add('metro', a.GEOID)); s.forEach(a => add('state', a.STUSAB));
+  return {out, missingZip: z.length ? null : true, rawZip: z.length ? z[0].GEOID : null};
+}
+async function pickAt(map, ll){
+  const pop = L.popup({className:'mpick', maxWidth:300, autoPanPadding:[20,20]}).setLatLng(ll).setContent('<div class="pk-h">Looking up this spot…</div>').openOn(map);
+  let res;
+  try { res = await placesAt(ll); } catch(e){ pop.setContent('<div class="pk-h">Lookup failed — try again.</div>'); return; }
+  if (!map.hasLayer(pop)) return;
+  if (!res.out.length){ pop.setContent('<div class="pk-h">No realtor.com data for this spot.</div>'); return; }
+  const cur = S.cur ? geoKey(S.cur) : '';
+  let h = '<div class="pk-h">Open this area</div>';
+  res.out.forEach(p => {
+    const on = cur === p.type+'-'+p.id;
+    h += '<button class="pk'+(on ? ' on' : '')+'" data-t="'+p.type+'" data-id="'+esc(p.id)+'"><span class="pk-t">'+TYPE[p.type]+'</span><span class="pk-n">'+
+      (p.type === 'zip' ? '<b>'+esc(p.id)+'</b> ' : '')+esc(p.name)+'</span>'+(on ? '<span class="pk-on">showing</span>' : '')+'</button>';
+  });
+  if (res.missingZip) h += '<div class="pk-x">No zip area here (water, parkland or a PO-box-only area).</div>';
+  else if (res.rawZip && !idxRow('zip', res.rawZip)) h += '<div class="pk-x">Zip '+esc(res.rawZip)+' has no realtor.com data.</div>';
+  pop.setContent(h);
+  pop.getElement().querySelectorAll('button.pk').forEach(b => b.onclick = () => {
+    map.closePopup(pop);
+    if (b.classList.contains('on')) return;
+    select(b.dataset.t, b.dataset.id);
+  });
+}
+// Faint outlines of every zip in view once zoomed in, so you can see where one ends and the next begins.
+const ZIP_MIN_ZOOM = 10.5;
+function attachZipLayer(map, card){
+  const renderer = L.canvas({padding:0.3});
+  let layer = null, seq = 0, timer = null;
+  const hint = card.querySelector('.mhint');
+  const setHint = () => { hint.textContent = map.getZoom() >= ZIP_MIN_ZOOM ? 'Click any spot to open its zip, county, metro or state' : 'Zoom in to see zip outlines · click any spot to open it'; };
+  const refresh = async () => {
+    setHint();
+    const my = ++seq;
+    if (map.getZoom() < ZIP_MIN_ZOOM){ if (layer){ map.removeLayer(layer); layer = null; } return; }
+    const b = map.getBounds();
+    let gj;
+    try {
+      gj = await tigerQuery(2, {geometry:[b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(4)).join(','),
+        geometryType:'esriGeometryEnvelope', outFields:'GEOID', outSR:'4326', maxAllowableOffset:map.getZoom() >= 12.5 ? '0.0002' : '0.0006', geometryPrecision:'5', f:'geojson'});
+    } catch(e){ return; }
+    if (my !== seq || !S.mapCard || S.mapCard.map !== map) return;
+    if (layer) map.removeLayer(layer);
+    const base = {color:'#2cc5b4', weight:1, opacity:0.55, fill:true, fillOpacity:0.02, fillColor:'#2cc5b4'};
+    layer = L.geoJSON(gj, {pane:'zips', renderer, style:() => base,
+      onEachFeature:(f, l) => {
+        const id = f.properties.GEOID, r = idxRow('zip', id);
+        l.bindTooltip('<b>'+esc(id)+'</b> '+(r ? esc(r[2]) : '<span style="color:#7f8bab">no data</span>'), {sticky:true, className:'mtip'});
+        l.on('mouseover', () => l.setStyle({weight:2, opacity:1, fillOpacity:0.12}));
+        l.on('mouseout', () => l.setStyle(base));
+      }}).addTo(map);
+  };
+  map.createPane('zips'); map.getPane('zips').style.zIndex = 390;
+  map.on('moveend', () => { clearTimeout(timer); timer = setTimeout(refresh, 300); });
+  setHint();
+}
+async function renderMap(g){
+  const box = $('mapbox'); if (!box) return;
+  // Re-renders (trailing window, benchmark) keep the existing map, so pan/zoom isn't reset.
+  if (S.mapCard && S.mapCard.key === mapKey()){ box.replaceWith(S.mapCard.el); S.mapCard.map.invalidateSize(); return; }
+  if (S.mapCard){ try { S.mapCard.map.remove(); } catch(e){} S.mapCard = null; }
+  const card = document.createElement('div');
+  card.className = 'card mapc';
+  if (typeof L === 'undefined'){
+    card.innerHTML = '<div class="mh"><h2>Location</h2></div><div class="mnote">The map library didn\'t load — check your connection and reload.</div>';
+    box.replaceWith(card); return;
+  }
+  const cmp = S.cmp;
+  card.innerHTML = '<div class="mh"><h2>Location</h2><div class="mlg">'+
+    (g.type === 'us' ? '' : '<span><i style="border-color:'+C.s1+';background:rgba(186,134,40,.25)"></i>'+esc(geoTitle(g))+'</span>')+
+    '<span class="ctxl" style="display:none"><i class="ctx"></i><b style="font-weight:400"></b></span>'+
+    (cmp && cmp.type !== 'us' ? '<span><i style="border-color:'+C.s3+';background:rgba(140,123,245,.2)"></i>'+esc(geoTitle(cmp))+'</span>' : '')+
+    '</div></div><div class="mnote" style="display:none"></div><div id="map"></div><div class="mhint"></div><div class="mstat">Loading outline…</div>';
+  box.replaceWith(card);
+  const map = L.map(card.querySelector('#map'), {scrollWheelZoom:false, zoomSnap:0.25, worldCopyJump:true});
+  // Esri dark gray canvas (no API key): base below the outlines, place/road labels on a pane above them.
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  L.tileLayer(ESRI+'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom:16,
+    attribution:'Basemap &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Boundaries: US Census'}).addTo(map);
+  map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
+  L.tileLayer(ESRI+'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, pane:'labels'}).addTo(map);
+  map.fitBounds(US48);
+  // Scroll-wheel zoom only after the map is clicked, so scrolling the page never gets trapped.
+  // A click also looks up what's at that spot and offers to open it.
+  map.on('click', e => { map.scrollWheelZoom.enable(); pickAt(map, e.latlng); });
+  map.on('mouseout', () => map.scrollWheelZoom.disable());
+  S.mapCard = {key:mapKey(), el:card, map};
+  attachZipLayer(map, card);
+  const stat = card.querySelector('.mstat'), mine = () => S.mapCard && S.mapCard.map === map;
+  let plan, cmpB = null;
+  try {
+    [plan, cmpB] = await Promise.all([mapPlan(g), cmp && cmp.type !== 'us' ? getBoundary(cmp.type, cmp.id).catch(() => null) : null]);
+  } catch(e){
+    if (mine()){ stat.textContent = 'Could not load the outline ('+e.message+').'; S.mapCard.key = null; }
+    return;
+  }
+  if (!mine()) return;
+  stat.remove();
+  const draw = (gj, style, tip) => {
+    const l = L.geoJSON(gj, {style, interactive:!!tip});
+    if (tip) l.bindTooltip(esc(tip), {sticky:true, className:'mtip'});
+    return l.addTo(map);
+  };
+  let ctxL = null, mainL = null;
+  if (plan.ctx){
+    ctxL = draw(plan.ctx, {color:C.ref, weight:1.5, dashArray:'6 5', fill:false}, null);
+    const cl = card.querySelector('.ctxl'); cl.style.display = ''; cl.querySelector('b').textContent = plan.ctxLabel;
+  }
+  if (cmpB) draw(cmpB, {color:C.s3, weight:2, fillColor:C.s3, fillOpacity:0.15}, geoTitle(cmp));
+  if (plan.main){ mainL = draw(plan.main, {color:'#d9b25f', weight:2.5, fillColor:C.s1, fillOpacity:0.22}, geoTitle(g)); mainL.bringToFront(); }
+  if (plan.note){ const n = card.querySelector('.mnote'); n.textContent = plan.note; n.style.display = ''; }
+  const target = mainL || ctxL;
+  if (target) map.fitBounds(target.getBounds(), {padding:[22,22], maxZoom:14});
+  else if (g.type === 'us') map.fitBounds(US48);
 }
 
 // ---------- mortgage distress (CFPB) ----------
@@ -729,7 +953,7 @@ function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'b
 function renderNotes(){
   const M = S.meta.months;
   $('notes').innerHTML =
-   '<p><b>Version v02.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   '<p><b>Version v03.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
    'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
    '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
    '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
@@ -737,6 +961,7 @@ function renderNotes(){
    '<p><b>Colors on tiles</b>: green = the change points to a tighter / stronger market for sellers, red = softer. Shares change in percentage points. Median sq ft is not colored.</p>'+
    '<p><b>Percentile ranks</b> compare a zip or county with the others in its state for the latest month (100 = highest value, not necessarily "best"). For zips without a name in the source, the state is inferred from the first three digits.</p>'+
    '<p><b>Mortgage Distress</b> shows the share of mortgages 30–89 days and 90+ days delinquent, from the CFPB Mortgage Performance Trends data (National Mortgage Database). It is <b>county-level</b>, not zip-level: each zip uses the county holding the largest share of its land area (Census 2020 zip-area-to-county file). CFPB only publishes counties with at least 1,000 sampled mortgages; elsewhere the panel says so and shows the state series. CFPB data are published with a lag of several months.</p>'+
+   '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';
 }
 
