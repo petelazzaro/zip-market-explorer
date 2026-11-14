@@ -178,6 +178,10 @@ body.scrmode #main, body.scrmode .xo{display:none!important}
 .stbl td b.zid{color:var(--gold);font-weight:700;margin-right:6px}
 .stbl td.c{text-align:left}
 .pill.sm{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;margin-left:6px}
+.rbtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:999px;color:var(--teal);border:1px solid rgba(44,197,180,.5);background:rgba(44,197,180,.1);text-decoration:none}
+.rbtn:hover{background:rgba(44,197,180,.2);color:var(--ink)}
+.stbl a.rl{display:inline-block;color:var(--teal);text-decoration:none;font-size:13px;margin-right:7px;padding:0 3px;border-radius:4px;border:1px solid rgba(44,197,180,.4)}
+.stbl a.rl:hover{background:rgba(44,197,180,.2);color:var(--ink)}
 .snote{font-size:12.5px;color:var(--warn);margin-top:8px}
 </style>
 </head>
@@ -434,6 +438,7 @@ function render(){
     '<div class="sub">Latest month: '+mlong(M[li])+' · '+N+'-month trailing averages · Benchmark: '+(bg ? esc(geoTitle(bg)) : 'none')+
     (g.type === 'metro' && g.hr ? ' · #'+g.hr+' of '+S.counts.metro+' metros by households' : '')+'</div></div>'+
     '<div class="badges">'+
+    (realtorURL(g.type, g.id, g.n, g.st) ? '<a class="rbtn" href="'+esc(realtorURL(g.type, g.id, g.n, g.st))+'" target="_blank" rel="noopener" title="'+esc(realtorTip(g.type, g.n))+'">Homes for sale on realtor.com ↗</a>' : '')+
     (S.cmp ? '<span class="badge c">Comparing with '+esc(geoTitle(S.cmp))+'</span>' : '')+
     (stale ? '<span class="badge w">No '+mlong(M[li])+' price data — last: '+(lastP >= 0 ? mlong(M[lastP]) : 'none')+'</span>' : '')+
     (thin ? '<span class="badge w">Thin market: &lt;10 active listings ('+N+'M avg)</span>' : '')+
@@ -1101,6 +1106,7 @@ function buildScrUI(){
   $('stbl').addEventListener('click', e => {
     const th = e.target.closest('th[data-k]');
     if (th){ const k = th.dataset.k; SCR.sort = SCR.sort.k === k ? {k, dir:-SCR.sort.dir} : {k, dir:(k === 'n' || k === 'st') ? 1 : -1}; refreshScr(); return; }
+    if (e.target.closest('a')) return;   // the realtor.com link opens its own tab, not the explorer
     const tr = e.target.closest('tr[data-id]');
     if (tr) location.hash = SCR.level+'-'+tr.dataset.id;
   });
@@ -1143,7 +1149,9 @@ function drawScrTable(){
   if (!SCR.shown.length) h += '<tr><td colspan="'+(SCOLS.length+2)+'" style="text-align:left;color:var(--muted)">Nothing matches these filters.</td></tr>';
   SCR.shown.forEach((x, i) => {
     const nm = lv === 'zip' ? '<b class="zid">'+esc(x.id)+'</b>'+(x.n.startsWith('Zip ') ? '' : esc(x.n)) : esc(x.n);
-    h += '<tr data-id="'+esc(x.id)+'"><td title="'+esc(x.n)+'"><span class="rk">'+(i+1)+'. </span>'+nm+'</td><td class="c">'+esc(x.st)+'</td>'+
+    const ru = realtorURL(lv, x.id, x.n, x.st);
+    h += '<tr data-id="'+esc(x.id)+'"><td title="'+esc(x.n)+'"><span class="rk">'+(i+1)+'. </span>'+
+      (ru ? '<a class="rl" href="'+esc(ru)+'" target="_blank" rel="noopener" title="'+esc(realtorTip(lv, x.n))+'" aria-label="Homes for sale on realtor.com">⌂</a>' : '')+nm+'</td><td class="c">'+esc(x.st)+'</td>'+
       SCOLS.map(([key,, f, d]) => {
         if (key === 'score'){
           const sl = scoreLabel(x.score);
@@ -1172,6 +1180,41 @@ function copyScrCSV(){
   };
   try { navigator.clipboard.writeText(txt).then(ok, fallback); } catch(e){ fallback(); }
 }
+// ---------- realtor.com links ----------
+// Listings can't be shown in this app (no public feed; realtor.com blocks embedding), so each place
+// links to realtor.com's own search. On a phone with the realtor.com app, the link usually opens the app.
+const RDC = 'https://www.realtor.com/realestateandhomes-search/';
+const STATE_NAME = st => { const g = stateGeo(st); return g ? g.n : st; };
+const slug = s => String(s).trim().replace(/[.']/g, '').replace(/\s+/g, '-');
+const HYPHEN_CITIES = ['Winston-Salem', 'Wilkes-Barre', 'Sedro-Woolley', 'Lees-Summit'];
+function placeOf(name){ const i = String(name).lastIndexOf(','); return i < 0 ? String(name) : name.slice(0, i); }
+function realtorURL(type, id, name, st){
+  if (type === 'zip') return /^\d{5}$/.test(id) ? RDC+id : null;
+  if (type === 'state'){
+    if (id === 'DC') return RDC+'Washington_DC';
+    return RDC+slug(STATE_NAME(id));
+  }
+  if (!st) return null;
+  if (type === 'county'){
+    const place = placeOf(name);
+    if (st === 'AK') return RDC+slug(place)+'_AK';                     // already "... Borough" / "... Census Area"
+    if (/ city$/i.test(place)) return RDC+slug(place.replace(/ city$/i, ''))+'_'+st;   // independent cities
+    return RDC+slug(place)+'-'+(st === 'LA' ? 'Parish' : 'County')+'_'+st;
+  }
+  if (type === 'metro'){
+    // "Atlanta-Sandy Springs-Roswell, GA" -> the first-named city, Atlanta_GA
+    let place = placeOf(name);
+    const keep = HYPHEN_CITIES.find(c => place.startsWith(c));
+    place = keep || place.split(/-+/)[0];
+    return RDC+slug(place)+'_'+st;
+  }
+  return null;
+}
+function realtorTip(type, name){
+  if (type === 'metro') return 'Homes for sale in '+placeOf(name).split(/-+/)[0]+' on realtor.com (its largest city — realtor.com has no metro search)';
+  return 'Homes for sale in '+(type === 'state' ? name : placeOf(name) || name)+' on realtor.com';
+}
+
 // ---------- modes ----------
 const isScrHash = () => location.hash === '#screener';
 function setMode(m){

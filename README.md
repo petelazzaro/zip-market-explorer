@@ -41,6 +41,17 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## realtor.com links
+
+Each place has a **Homes for sale on realtor.com ↗** button in the explorer header, and a ⌂ icon on each screener row. Both open realtor.com's search for that area in a new tab. On a phone with the realtor.com app installed, the link usually opens in the app. Listings can't be shown inside this site: realtor.com has no public listings feed and blocks embedding, and showing listings directly would need an MLS/IDX license.
+
+- **How each place maps to a realtor.com search:**
+  - Zip: `/realestateandhomes-search/30084`
+  - County: `DeKalb-County_GA` (`-Parish` in Louisiana, and Alaska boroughs/census areas as named)
+  - State: `Georgia` (DC goes to `Washington_DC`)
+  - Metro: its first-named city, e.g. `Atlanta_GA`, because realtor.com has no metro search.
+- realtor.com blocks automated checks, so these formats were built from its standard search URLs and should be click-tested after any change.
+
 ## Screener (v04)
 
 The **Explorer | Screener** toggle at the top (link: `#screener`) switches to a ranked table of every state, metro, county or zip.
