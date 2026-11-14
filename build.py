@@ -12,6 +12,7 @@ The build exits with a non-zero status if any validation check fails.
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import os
 import random
@@ -54,6 +55,16 @@ METRICS = {
     "q": ("quality_flag", 1),
 }
 SCALE = {k: sc for k, (_, sc) in METRICS.items() if sc != 1}
+
+# Screener files (site/d/scr/<level>.json): the last SCR_MONTHS months of these metrics, same scaling.
+# price_reduced_count is read for the screener only; the explorer files don't carry it.
+SCR_METRICS = {
+    "p": METRICS["p"], "f": METRICS["f"], "al": METRICS["al"], "nl": METRICS["nl"], "pl": METRICS["pl"],
+    "dom": METRICS["dom"], "prs": METRICS["prs"], "prc": ("price_reduced_count", 1), "pr": METRICS["pr"],
+}
+SCR_MONTHS = 24
+SCR_ALIVE_MONTHS = 3     # keep a place only if it had active listings in the last 3 months
+SCR_ZIP_MB_WARN = 8
 RANK_KEYS = ["p", "f", "al", "dom", "prs", "pr"]
 ZIP_SHARD_MB_WARN = 12
 SITE_MB_LIMIT = 500
@@ -108,6 +119,11 @@ def read_history(kind: str, key_col: str, extra_cols: list[str]) -> pd.DataFrame
     if missing:
         problems.append(f"{path.name}: missing columns {missing}")
         return None
+    scr_only = [c for c, _ in SCR_METRICS.values() if c not in metric_cols]
+    if [c for c in scr_only if c not in header]:
+        warnings.append(f"{path.name}: no {scr_only} column - screener price-cut counts will be blank")
+    scr_only = [c for c in scr_only if c in header]
+    metric_cols = metric_cols + scr_only
     use = ["month_date_yyyymm", key_col] + [c for c in extra_cols if c in header] + metric_cols
     parts, dropped = [], 0
     # Everything is read as text first so a stray footnote row can never break the dtypes.
@@ -171,15 +187,18 @@ def latest_names(df: pd.DataFrame, key_col: str, name_col: str) -> pd.Series:
 
 
 # ---------------------------------------------------------------- encoding
-def encode(df: pd.DataFrame, key_col: str, months: list[int]) -> dict[str, dict[str, str]]:
-    """Return {key: {metric: 'v,,v,...'}} aligned to the global month list."""
+def encode(df: pd.DataFrame, key_col: str, months: list[int], metrics: dict | None = None) -> dict[str, dict[str, str]]:
+    """Return {key: {metric: 'v,,v,...'}} aligned to the given month list."""
+    metrics = METRICS if metrics is None else metrics
     keys = np.sort(df[key_col].unique())
     kpos = {k: i for i, k in enumerate(keys)}
     mpos = {m: i for i, m in enumerate(months)}
     ki = df[key_col].map(kpos).to_numpy()
     mi = df["month"].map(mpos).to_numpy()
     out: dict[str, dict[str, str]] = {k: {} for k in keys}
-    for short, (col, sc) in METRICS.items():
+    for short, (col, sc) in metrics.items():
+        if col not in df:
+            continue
         mat = np.full((len(keys), len(months)), np.nan)
         mat[ki, mi] = df[col].to_numpy(dtype=float) * sc
         present = ~np.isnan(mat)
@@ -194,12 +213,65 @@ def encode(df: pd.DataFrame, key_col: str, months: list[int]) -> dict[str, dict[
     return out
 
 
-def decode_value(enc: dict[str, str], short: str, month_idx: int) -> float | None:
+def decode_value(enc: dict[str, str], short: str, month_idx: int, metrics: dict | None = None) -> float | None:
     s = enc.get(short)
-    if s is None:
+    if not s:
         return None
     v = s.split(",")[month_idx]
-    return None if v == "" else int(v) / METRICS[short][1]
+    return None if v == "" else int(v) / (METRICS if metrics is None else metrics)[short][1]
+
+
+# ---------------------------------------------------------------- screener
+def delta_enc(s: str) -> str:
+    """'400,,410,405' -> '400,,10,-5': each value minus the previous non-blank value (blanks kept).
+    Screener files only - it trims the zip file by ~7% compressed without dropping anything."""
+    if not s:
+        return s
+    out, prev = [], None
+    for v in s.split(","):
+        if v == "":
+            out.append("")
+            continue
+        n = int(v)
+        out.append(str(n if prev is None else n - prev))
+        prev = n
+    return ",".join(out)
+
+
+def delta_dec(s: str) -> str:
+    if not s:
+        return s
+    out, prev = [], 0
+    for v in s.split(","):
+        if v == "":
+            out.append("")
+            continue
+        prev += int(v)
+        out.append(str(prev))
+    return ",".join(out)
+
+
+def write_screener(level: str, df: pd.DataFrame, key_col: str, months: list[int],
+                   names: dict[str, tuple[str, str | None]], sizes: dict[str, int]) -> dict:
+    """site/d/scr/<level>.json = {start, keys, rows: {id: [name, state, delta-encoded 'v,,v' per key]}}.
+    start = index into meta.months of the first month in each series."""
+    start = max(0, len(months) - SCR_MONTHS)
+    window = months[start:]
+    sub = df[df["month"].isin(window)]
+    recent = sub[sub["month"].isin(window[-SCR_ALIVE_MONTHS:]) & (sub["active_listing_count"] > 0)]
+    alive = set(recent[key_col].unique()) & set(names)
+    enc = encode(sub[sub[key_col].isin(alive)], key_col, window, SCR_METRICS)
+    keys = list(SCR_METRICS)
+    rows = {k: [names[k][0], names[k][1] or ""] + [delta_enc(enc[k].get(s, "")) for s in keys] for k in sorted(enc)}
+    name = f"scr/{level}.json"
+    sizes[name] = write_json(OUT / name, {"start": start, "keys": keys, "rows": rows})
+    gz = len(gzip.compress((OUT / name).read_bytes(), 6))
+    log(f"  screener {level}: {len(rows):,} places (of {df[key_col].nunique():,}), "
+        f"{mb(sizes[name])} ({mb(gz)} gzipped over the wire)")
+    # GitHub Pages serves JSON gzipped, so the compressed size is what a visitor downloads.
+    if level == "zip" and gz > SCR_ZIP_MB_WARN * 1e6:
+        warnings.append(f"zip screener is {mb(sizes[name])} ({mb(gz)} gzipped) - over the {SCR_ZIP_MB_WARN} MB guide")
+    return {"rows": len(rows), "bytes": sizes[name], "gz": gz, "start": start}
 
 
 # ---------------------------------------------------------------- ranks
@@ -230,7 +302,10 @@ def mb(n: int) -> str:
 
 
 # ---------------------------------------------------------------- spot check
-def spot_check(kind: str, key_col: str, keys: list[str], shard_of, months: list[int]) -> None:
+def spot_check(kind: str, key_col: str, keys: list[str], shard_of, months: list[int],
+               scr: tuple[str, str] | None = None) -> None:
+    """Compare the latest month in the output with the raw CSV. scr=(level, key) also checks
+    that key's row in the screener file (price, price-cut count and share, pending ratio)."""
     li = len(months) - 1
     month = months[li]
     log(f"  spot check {kind} @ {month}:")
@@ -267,6 +342,30 @@ def spot_check(kind: str, key_col: str, keys: list[str], shard_of, months: list[
             if not ok:
                 problems.append(f"spot check {kind} {k} {col}: output {out_v} != raw {raw_v}")
         log(f"    {k} ({rec.get('n')}): " + "; ".join(line))
+    if scr:
+        level, k = scr
+        obj = json.loads((OUT / "scr" / f"{level}.json").read_text(encoding="utf-8"))
+        rec, row = obj["rows"].get(k), found.get(k)
+        if rec is None or row is None:
+            problems.append(f"screener spot check {level} {k}: missing in {'screener' if rec is None else 'raw'}")
+            log(f"    screener {level} {k}: MISSING")
+            return
+        enc = dict(zip(obj["keys"], (delta_dec(x) for x in rec[2:])))
+        si = len(months) - 1 - obj["start"]
+        line = []
+        for short in ("p", "prc", "prs", "pr"):
+            col, sc = SCR_METRICS[short]
+            raw_s = (row.get(col) or "").strip()
+            raw_v = None if raw_s == "" else float(raw_s)
+            out_v = decode_value(enc, short, si, SCR_METRICS)
+            if raw_v is None or out_v is None:
+                ok = raw_v is None and out_v is None
+            else:
+                ok = abs(out_v - raw_v) <= 0.5 / sc + 1e-9
+            line.append(f"{short}={out_v} vs raw {raw_v} {'ok' if ok else 'MISMATCH'}")
+            if not ok:
+                problems.append(f"screener spot check {level} {k} {col}: output {out_v} != raw {raw_v}")
+        log(f"    screener {level} {k} ({rec[0]}): " + "; ".join(line))
 
 
 # ---------------------------------------------------------------- main
@@ -324,7 +423,9 @@ def main() -> int:
     st_names = latest_names(st, "state_id", "state")
     enc = encode(st, "state_id", months)
     states = {}
+    scr_names: dict[str, dict[str, tuple[str, str | None]]] = {"state": {}, "metro": {}, "county": {}, "zip": {}}
     for k, d in enc.items():
+        scr_names["state"][k] = (st_names.get(k, k), k)
         states[k] = {"n": st_names.get(k, k), "st": k, "d": d}
         idx.append(["state", k, st_names.get(k, k), k])
     sizes["states.json"] = write_json(OUT / "states.json", states)
@@ -347,6 +448,7 @@ def main() -> int:
                 pass
         shards.setdefault(k[:2], {})[k] = rec
         idx.append(["metro", k, n, rec["st"] or ""])
+        scr_names["metro"][k] = (n, rec["st"])
     for p, obj in shards.items():
         sizes[f"metro/{p}.json"] = write_json(OUT / "metro" / f"{p}.json", obj)
 
@@ -366,6 +468,7 @@ def main() -> int:
             rec["rk"] = co_ranks[k]
         shards.setdefault(k[:2], {})[k] = rec
         idx.append(["county", k, n, stt or ""])
+        scr_names["county"][k] = (n, stt)
     for p, obj in shards.items():
         sizes[f"county/{p}.json"] = write_json(OUT / "county" / f"{p}.json", obj)
 
@@ -400,10 +503,19 @@ def main() -> int:
                 rec["rk"] = z_ranks[k]
             shards.setdefault(k[:2], {})[k] = rec
             idx.append(["zip", k, rec["n"], stt or ""])
+            scr_names["zip"][k] = (rec["n"], stt)
         for p, obj in shards.items():
             sizes[f"zip/{p}.json"] = write_json(OUT / "zip" / f"{p}.json", obj)
         zip_stats = {"zips": len(enc), "unnamed": unnamed, "inferred_state": int(inferred.sum()),
                      "no_state": int(zst.isna().sum()), "in_latest": int(zp_latest["postal_code"].nunique())}
+
+    # ---- screener
+    log("Screener files")
+    scr_info = {}
+    for level, df, key_col in [("state", st, "state_id"), ("metro", me, "cbsa_code"),
+                               ("county", co, "county_fips"), ("zip", zp, "postal_code")]:
+        if df is not None:
+            scr_info[level] = write_screener(level, df, key_col, months, scr_names[level], sizes)
 
     # ---- meta
     type_order = {"us": 0, "state": 1, "metro": 2, "county": 3, "zip": 4}
@@ -418,6 +530,7 @@ def main() -> int:
                   "zip": (zp[zp["month"] == latest].groupby("st")["postal_code"].nunique().to_dict()
                           if zp is not None else {})},
         "hasUS": us is not None,
+        "scr": {lv: {"rows": v["rows"], "start": v["start"]} for lv, v in scr_info.items()},
         "idx": idx,
     }
     sizes["meta.json"] = write_json(OUT / "meta.json", meta)
@@ -432,14 +545,15 @@ def main() -> int:
         tmp.write_text(json.dumps({us_key: us_rec}), encoding="utf-8")
         spot_check("us", "country", [us_key], lambda k: tmp, months)
         tmp.unlink()
-    spot_check("state", "state_id", ["GA", "CA", "TX"], lambda k: OUT / "states.json", months)
+    spot_check("state", "state_id", ["GA", "CA", "TX"], lambda k: OUT / "states.json", months, scr=("state", "GA"))
     spot_check("county", "county_fips", ["13089", "06037", "48201"],
-               lambda k: OUT / "county" / f"{k[:2]}.json", months)
+               lambda k: OUT / "county" / f"{k[:2]}.json", months, scr=("county", "13089"))
     if zp is not None:
         latest_zips = sorted(zp_latest.dropna(subset=["median_listing_price"])["postal_code"].unique())
         rnd = random.Random(latest)
         picks = ["30084"] + rnd.sample([z for z in latest_zips if z != "30084"], 2)
-        spot_check("zip", "postal_code", picks, lambda k: OUT / "zip" / f"{k[:2]}.json", months)
+        spot_check("zip", "postal_code", picks, lambda k: OUT / "zip" / f"{k[:2]}.json", months,
+                   scr=("zip", "30084"))
 
     return report({"frames": frames, "months": months, "sizes": sizes, "zip": zip_stats,
                    "counts": {"states": len(states), "metros": me["cbsa_code"].nunique(),
@@ -471,6 +585,9 @@ def report(info, t_start) -> int:
         zsh = {k: v for k, v in sizes.items() if k.startswith("zip/")}
         log(f"Output: {len(sizes)} files, {mb(total)} total (limit {SITE_MB_LIMIT} MB)")
         log(f"  meta.json {mb(sizes['meta.json'])}")
+        scr = {k: v for k, v in sizes.items() if k.startswith("scr/")}
+        if scr:
+            log("  screener: " + ", ".join(f"{k[4:-5]} {mb(v)}" for k, v in scr.items()))
         if zsh:
             big = max(zsh, key=zsh.get)
             log(f"  zip shards: {len(zsh)}, largest {big} {mb(zsh[big])}, median {mb(int(np.median(list(zsh.values()))))}")

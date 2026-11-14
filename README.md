@@ -41,6 +41,21 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## Screener (v04)
+
+The **Explorer | Screener** toggle at the top (link: `#screener`) switches to a ranked table of every state, metro, county or zip.
+
+- **Controls:** level, state filter, minimum average active listings (default 25), median price min/max, and show top 50/100/250. The trailing-average box and window are shared with the explorer. Search, compare, benchmark and "show monthly values" are hidden in this mode.
+- **Figures:** every column is the N-month trailing average. Every YoY compares that average with the same window 12 months earlier, exactly like the explorer tiles (shares in points). The files hold the last 24 months, so YoY needs a window of 12 months or less.
+- **Columns:** name, state, median price, $/sq ft, active listings, new listings, median DOM, price-reduced share, price-reduced count and pending ratio, each with its YoY, plus a market score. Click a header to sort, and click again to flip.
+- **Market score:** the explorer's six market-read signals, with a Seller / Balanced / Buyer pill. The benchmark is the parent state for zips and counties, and the US for states and metros. In the explorer, a metro is compared with its state, so a metro's score can differ between the two views.
+- **Presets** set the sort only:
+  - **Levels:** highest/lowest price, highest $/sq ft, most inventory, most new listings, most price cuts, highest price-cut share, highest pending ratio, selling fastest, slowest selling.
+  - **Changes:** price cuts rising fastest, biggest inventory build, fastest price gains, prices falling, cooling fastest, hottest.
+- **Other actions:** clicking a row opens that place in the explorer. "Copy table as CSV" copies the rows shown.
+- **Data:** `build.py` writes `site/d/scr/<level>.json` as `{start, keys, rows: {id: [name, state, series...]}}`. These hold the last 24 months of price, $/sq ft, active, new and pending listings, DOM, price-reduced share, **price-reduced count** (screener only) and pending ratio. Scaling is the same as the explorer files, and each series is delta-encoded (each value minus the previous non-blank one). Only places with active listings in the last 3 months are included. The build logs each file's rows and size, and spot-checks the screener rows for zip 30084, county 13089 and Georgia against the raw CSV.
+- **Size (Oct 2026 build):** zip 21.4 MB on disk / 7.8 MB as served (GitHub Pages gzips JSON), county 2.5 MB, metro 0.8 MB, state 0.05 MB. Each level loads only when it's selected.
+
 ## Location map (v03)
 
 A map card under the place name zooms to the selected area and draws its outline in gold. A dashed outline gives context: a zip's main county, or the state of a county or metro. A comparison place is outlined in violet.

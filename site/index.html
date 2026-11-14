@@ -152,6 +152,33 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
 .mpick .pk-x{font-size:11.5px;color:var(--muted);margin:6px 4px 0}
 .leaflet-tooltip.mtip{background:#101c35;border:1px solid var(--line);color:var(--ink);box-shadow:none;font:inherit;font-size:12px}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#13223f;border:1px solid var(--teal);padding:10px 16px;border-radius:10px;font-size:13px;display:none;z-index:50;max-width:calc(100% - 32px)}
+/* Explorer / Screener modes */
+.modeseg button{padding:9px 16px;font-weight:700}
+.scrv{display:none}
+body.scrmode .scrv{display:block}
+body.scrmode #main, body.scrmode .xo{display:none!important}
+.sctl{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
+.sctl .ctl input[type=number]{width:120px}
+.sctl select{width:auto;min-width:150px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.presets .pl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:0 0 74px}
+.chip.on{border-color:var(--gold);color:var(--gold);background:rgba(217,178,95,.12)}
+.sstat{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 10px;color:var(--ink2);font-size:13.5px}
+.sstat b{color:var(--ink)}
+.stbl{max-height:none}
+.stbl table{font-size:12.5px}
+.stbl th.s{cursor:pointer;user-select:none}
+.stbl th.s:hover{color:var(--ink)}
+.stbl th.on{color:var(--gold)}
+.stbl th .ar{margin-left:3px}
+.stbl td:first-child,.stbl th:first-child{text-align:left;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.stbl td.rk{color:var(--muted)}
+.stbl tbody tr{cursor:pointer}
+.stbl tbody tr:hover td{background:rgba(44,197,180,.08)}
+.stbl td b.zid{color:var(--gold);font-weight:700;margin-right:6px}
+.stbl td.c{text-align:left}
+.pill.sm{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;margin-left:6px}
+.snote{font-size:12.5px;color:var(--warn);margin-top:8px}
 </style>
 </head>
 <body>
@@ -161,10 +188,11 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
       <h1>Zip <span>Market</span> Explorer</h1>
       <div class="sub" id="cov">realtor.com listing-market data</div>
     </div>
+    <div class="seg modeseg" id="mode" role="tablist"><button data-v="explorer" class="on">Explorer</button><button data-v="screener">Screener</button></div>
   </div>
 
   <div class="controls card">
-    <div class="search">
+    <div class="search xo">
       <label class="l" for="q">Search zip, town, county, metro or state</label>
       <div class="srow">
         <input type="search" id="q" placeholder="e.g. 30084, tucker, fulton county, atlanta, GA" autocomplete="off" spellcheck="false">
@@ -180,11 +208,11 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
       <label class="l">Window</label>
       <div class="seg" id="rng"><button data-v="12">12M</button><button data-v="24">24M</button><button data-v="60">5Y</button><button data-v="0" class="on">All</button></div>
     </div>
-    <div class="ctl">
+    <div class="ctl xo">
       <label class="l" for="bm">Benchmark</label>
       <select id="bm"><option value="parent">Parent state</option><option value="us">US</option><option value="none">None</option></select>
     </div>
-    <div class="search cmp">
+    <div class="search cmp xo">
       <label class="l" for="cq">Compare with (optional)</label>
       <div class="srow">
         <input type="search" id="cq" placeholder="second place to overlay" autocomplete="off" spellcheck="false">
@@ -192,12 +220,13 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
       </div>
       <div class="results" id="cres" role="listbox"></div>
     </div>
-    <div class="ctl">
+    <div class="ctl xo">
       <label class="chk"><input type="checkbox" id="raw" checked> Show monthly values</label>
     </div>
   </div>
 
   <div id="main"><div class="card loading">Loading…</div></div>
+  <div id="scrv" class="scrv"></div>
 
   <div class="card notes" style="margin-top:22px" id="notes"></div>
 </div>
@@ -947,6 +976,216 @@ function copyCSV(g){
   };
   try { navigator.clipboard.writeText(txt).then(ok, fallback); } catch(e){ fallback(); }
 }
+// ---------- screener ----------
+// Ranks every place at one level from d/scr/<level>.json (last 24 months, delta-encoded, same scaling
+// as the explorer). Every figure is the N-month trailing average from the shared box; every YoY compares
+// that average with the same window 12 months earlier, exactly like the explorer tiles.
+const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0};
+const SCR_PLURAL = {state:'states', metro:'metros', county:'counties', zip:'zips'};
+// [key, header, formatter, color direction (+1 rising = tighter for sellers, -1 falling = tighter, 0 = none)]
+const SCOLS = [
+  ['p','Median price',fmt.usd,0], ['pY','Price YoY',fmt.chg,1],
+  ['f','$/sq ft',fmt.psf,0], ['fY','$/sq ft YoY',fmt.chg,1],
+  ['al','Active listings',fmt.num,0], ['alY','Active YoY',fmt.chg,-1],
+  ['nl','New listings',fmt.num,0], ['nlY','New YoY',fmt.chg,-1],
+  ['dom','Median DOM',fmt.num,0], ['domY','DOM YoY',fmt.chg,-1],
+  ['prs','Price-reduced share',fmt.pct,0], ['prsY','Reduced share YoY',fmt.pts,-1],
+  ['prc','Price-reduced count',fmt.num,0], ['prcY','Reduced count YoY',fmt.chg,-1],
+  ['pr','Pending ratio',fmt.ratio,0], ['prY','Pending ratio YoY',fmt.chg,1],
+  ['score','Market score',null,0]
+];
+// Presets set the sort only. dir -1 = highest first, +1 = lowest first.
+const PRESETS = [
+  ['Levels','Highest price','p',-1], ['Levels','Lowest price','p',1], ['Levels','Highest $/sq ft','f',-1],
+  ['Levels','Most inventory','al',-1], ['Levels','Most new listings','nl',-1], ['Levels','Most price cuts','prc',-1],
+  ['Levels','Highest price-cut share','prs',-1], ['Levels','Highest pending ratio','pr',-1],
+  ['Levels','Selling fastest','dom',1], ['Levels','Slowest selling','dom',-1],
+  ['Changes','Price cuts rising fastest','prsY',-1], ['Changes','Biggest inventory build','alY',-1],
+  ['Changes','Fastest price gains','pY',-1], ['Changes','Prices falling','pY',1],
+  ['Changes','Cooling fastest','domY',-1], ['Changes','Hottest','score',-1]
+];
+function loadScr(level){
+  return SCR.files[level] || (SCR.files[level] = getJSON('d/scr/'+level+'.json').then(o => {
+    const sc = S.meta.scale, rows = [];
+    for (const id in o.rows){
+      const r = o.rows[id], d = {};
+      o.keys.forEach((k, j) => {
+        const s = r[j+2], f = k in sc ? 1/sc[k] : 1;
+        if (!s){ d[k] = null; return; }
+        let prev = 0;   // delta-encoded: each value is the change from the previous non-blank value
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v)*f);
+      });
+      rows.push({id, n:r[0], st:r[1], d});
+    }
+    return {start:o.start, rows};
+  }).catch(e => { delete SCR.files[level]; throw e; }));
+}
+// Latest trailing average and the one 12 months earlier (null when the 24-month file can't cover it).
+function tNowAgo(arr, N){
+  if (!arr) return [null, null];
+  const t = trailing(arr, N), li = arr.length-1;
+  return [t[li], li >= 12 ? t[li-12] : null];
+}
+function scrRow(r, N){
+  const x = {id:r.id, n:r.n, st:r.st};
+  const ch = (a, b) => isNum(a) && b ? a/b-1 : null;
+  for (const k of ['p','f','al','nl','dom','prs','prc','pr']){
+    const [now, ago] = tNowAgo(r.d[k], N);
+    x[k] = now;
+    x[k+'Y'] = k === 'prs' ? (isNum(now) && isNum(ago) ? now-ago : null) : ch(now, ago);
+  }
+  return x;
+}
+// The explorer's six market-read signals, scored the same way.
+function scrScore(x, b){
+  let s = 0, n = 0;
+  const add = v => { s += v; n++; };
+  if (b){
+    if (isNum(x.dom) && b.dom){ const r = x.dom/b.dom; add(r < 0.85 ? 1 : r > 1.15 ? -1 : 0); }
+    if (isNum(x.prs) && isNum(b.prs)){ const d = x.prs-b.prs; add(d < -0.03 ? 1 : d > 0.03 ? -1 : 0); }
+    if (isNum(x.pr) && b.pr){ const r = x.pr/b.pr; add(r > 1.15 ? 1 : r < 0.85 ? -1 : 0); }
+  }
+  if (isNum(x.alY)) add(x.alY < -0.05 ? 1 : x.alY > 0.15 ? -1 : 0);
+  if (isNum(x.domY)) add(x.domY < -0.10 ? 1 : x.domY > 0.10 ? -1 : 0);
+  if (isNum(x.fY)) add(x.fY > 0.03 ? 1 : x.fY < -0.02 ? -1 : 0);
+  return n ? s : null;
+}
+async function scrCalc(level, N){
+  const key = level+'|'+N;
+  if (SCR.calc[key]) return SCR.calc[key];
+  const file = await loadScr(level);
+  // Benchmark: parent state (from the state screener file) for zips and counties; the US for states and metros.
+  let bench = () => null;
+  if (level === 'zip' || level === 'county'){
+    const sf = await loadScr('state'), bs = {};
+    sf.rows.forEach(r => bs[r.id] = scrRow(r, N));
+    bench = x => bs[x.st] || null;
+  } else if (S.usGeo){
+    const li = S.meta.months.length-1, u = {};
+    ['dom','prs','pr'].forEach(k => u[k] = T(S.usGeo, k)[li]);
+    bench = () => u;
+  }
+  const out = file.rows.map(r => { const x = scrRow(r, N); x.score = scrScore(x, bench(x)); return x; });
+  SCR.calc = {}; SCR.calc[key] = out;   // keep one level/window at a time
+  return out;
+}
+const scoreLabel = s => s === null ? null : s >= 2 ? ['Seller','sel'] : s <= -2 ? ['Buyer','buy'] : ['Balanced','bal'];
+function buildScrUI(){
+  const states = S.meta.idx.filter(r => r[0] === 'state').sort((a,b) => a[2].localeCompare(b[2]));
+  let h = '<div class="card controls" style="margin-top:0"><div class="sctl" style="margin:0">'+
+    '<div class="ctl"><label class="l">Level</label><div class="seg" id="slv">'+
+      ['state','metro','county','zip'].map(t => '<button data-v="'+t+'"'+(t === SCR.level ? ' class="on"' : '')+'>'+TYPE[t]+'</button>').join('')+'</div></div>'+
+    '<div class="ctl"><label class="l" for="sst">State</label><select id="sst"><option value="">All states</option>'+
+      states.map(r => '<option value="'+r[1]+'">'+esc(r[2])+'</option>').join('')+'</select></div>'+
+    '<div class="ctl"><label class="l" for="smin">Min avg active listings</label><input type="number" id="smin" min="0" step="5" value="'+SCR.minAl+'" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l" for="spmin">Median price min</label><input type="number" id="spmin" min="0" step="25000" placeholder="any" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l" for="spmax">Median price max</label><input type="number" id="spmax" min="0" step="25000" placeholder="any" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l">Show top</label><div class="seg" id="stop">'+
+      [50,100,250].map(n => '<button data-v="'+n+'"'+(n === SCR.top ? ' class="on"' : '')+'>'+n+'</button>').join('')+'</div></div>'+
+    '</div>';
+  ['Levels','Changes'].forEach(g => {
+    h += '<div class="presets"><span class="pl">'+g+'</span>'+PRESETS.map((p, i) => p[0] === g ? '<button class="chip" data-i="'+i+'">'+p[1]+'</button>' : '').join('')+'</div>';
+  });
+  h += '</div><div class="sstat"><span id="sstat">Loading…</span><button class="btn" id="scopy">Copy table as CSV</button></div>'+
+    '<div class="card tbl stbl" id="stbl"></div>';
+  $('scrv').innerHTML = h;
+  $('slv').onclick = e => { const b = e.target.closest('button'); if (!b) return; SCR.level = b.dataset.v;
+    [...$('slv').children].forEach(x => x.classList.toggle('on', x === b)); refreshScr(); };
+  $('stop').onclick = e => { const b = e.target.closest('button'); if (!b) return; SCR.top = +b.dataset.v;
+    [...$('stop').children].forEach(x => x.classList.toggle('on', x === b)); refreshScr(); };
+  $('sst').onchange = () => { SCR.st = $('sst').value; refreshScr(); };
+  const num = (id, prop) => $(id).addEventListener('input', () => { const v = $(id).value.trim(); SCR[prop] = v === '' || !isFinite(+v) ? null : +v; refreshScr(); });
+  num('smin', 'minAl'); num('spmin', 'pmin'); num('spmax', 'pmax');
+  $('scrv').querySelectorAll('.presets .chip').forEach(b => b.onclick = () => { const p = PRESETS[+b.dataset.i]; SCR.sort = {k:p[2], dir:p[3]}; refreshScr(); });
+  $('scopy').onclick = copyScrCSV;
+  $('stbl').addEventListener('click', e => {
+    const th = e.target.closest('th[data-k]');
+    if (th){ const k = th.dataset.k; SCR.sort = SCR.sort.k === k ? {k, dir:-SCR.sort.dir} : {k, dir:(k === 'n' || k === 'st') ? 1 : -1}; refreshScr(); return; }
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) location.hash = SCR.level+'-'+tr.dataset.id;
+  });
+  SCR.built = true;
+}
+async function refreshScr(){
+  if (!SCR.built) buildScrUI();
+  const my = ++SCR.seq, level = SCR.level, N = S.N;
+  if (!SCR.files[level]) $('sstat').textContent = 'Loading '+SCR_PLURAL[level]+'…';
+  let all;
+  try { all = await scrCalc(level, N); }
+  catch(e){ if (my === SCR.seq){ $('sstat').textContent = 'Could not load screener data ('+e.message+').'; $('stbl').innerHTML = ''; } return; }
+  if (my !== SCR.seq) return;
+  const f = all.filter(x =>
+    (!SCR.st || x.st === SCR.st) &&
+    (!SCR.minAl || (isNum(x.al) && x.al >= SCR.minAl)) &&
+    (SCR.pmin === null || (isNum(x.p) && x.p >= SCR.pmin)) &&
+    (SCR.pmax === null || (isNum(x.p) && x.p <= SCR.pmax)));
+  const {k, dir} = SCR.sort;
+  const str = k === 'n' || k === 'st';
+  f.sort((a, b) => {
+    const va = a[k], vb = b[k];
+    if (str) return dir*String(va).localeCompare(String(vb)) || a.id.localeCompare(b.id);
+    const na = !isNum(va), nb = !isNum(vb);
+    if (na || nb) return na === nb ? a.n.localeCompare(b.n) : na ? 1 : -1;   // blanks always last
+    return dir*(va-vb) || a.n.localeCompare(b.n);
+  });
+  SCR.total = f.length; SCR.shown = f.slice(0, SCR.top);
+  const M = S.meta.months;
+  $('sstat').innerHTML = 'Showing <b>'+SCR.shown.length.toLocaleString()+'</b> of <b>'+f.length.toLocaleString()+'</b> '+SCR_PLURAL[level]+
+    (SCR.st ? ' in '+esc(SCR.st) : '')+' · '+N+'-month averages · '+mlong(M[M.length-1])+
+    (N > 12 ? '<div class="snote">YoY columns need a trailing average of 12 months or less — the screener keeps the last 24 months.</div>' : '');
+  $('scrv').querySelectorAll('.presets .chip').forEach(b => { const p = PRESETS[+b.dataset.i]; b.classList.toggle('on', p[2] === k && p[3] === dir); });
+  drawScrTable();
+}
+function drawScrTable(){
+  const {k, dir} = SCR.sort, lv = SCR.level;
+  const th = (key, lab) => '<th class="s'+(key === k ? ' on' : '')+'" data-k="'+key+'" title="Sort">'+lab+(key === k ? '<span class="ar">'+(dir < 0 ? '▼' : '▲')+'</span>' : '')+'</th>';
+  let h = '<table><thead><tr>'+th('n','Name')+th('st','State')+SCOLS.map(c => th(c[0], c[1])).join('')+'</tr></thead><tbody>';
+  if (!SCR.shown.length) h += '<tr><td colspan="'+(SCOLS.length+2)+'" style="text-align:left;color:var(--muted)">Nothing matches these filters.</td></tr>';
+  SCR.shown.forEach((x, i) => {
+    const nm = lv === 'zip' ? '<b class="zid">'+esc(x.id)+'</b>'+(x.n.startsWith('Zip ') ? '' : esc(x.n)) : esc(x.n);
+    h += '<tr data-id="'+esc(x.id)+'"><td title="'+esc(x.n)+'"><span class="rk">'+(i+1)+'. </span>'+nm+'</td><td class="c">'+esc(x.st)+'</td>'+
+      SCOLS.map(([key,, f, d]) => {
+        if (key === 'score'){
+          const sl = scoreLabel(x.score);
+          return '<td>'+(sl ? (x.score > 0 ? '+' : '')+x.score+'<span class="pill sm '+sl[1]+'">'+sl[0]+'</span>' : '–')+'</td>';
+        }
+        return '<td'+(d ? ' class="'+cls(x[key], d)+'"' : '')+'>'+f(x[key])+'</td>';
+      }).join('')+'</tr>';
+  });
+  $('stbl').innerHTML = h+'</tbody></table>';
+}
+function copyScrCSV(){
+  const N = S.N, M = S.meta.months;
+  const lines = [['rank','level','id','name','state'].concat(SCOLS.map(c => c[0] === 'score' ? 'market_score' : c[0]), ['market_read', 'trailing_months', 'month']).join(',')];
+  SCR.shown.forEach((x, i) => {
+    const sl = scoreLabel(x.score);
+    lines.push([i+1, SCR.level, x.id, csvCell(x.n), x.st].concat(
+      SCOLS.map(([key]) => isNum(x[key]) ? +x[key].toFixed(4) : ''), [sl ? sl[0] : '', N, M[M.length-1]]).join(','));
+  });
+  const txt = lines.join('\n');
+  const ok = () => toast('Copied '+SCR.shown.length+' rows — paste into Excel');
+  const fallback = () => {
+    const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy') ? ok() : toast('Copy blocked by browser'); } catch(e){ toast('Copy blocked by browser'); }
+    ta.remove();
+  };
+  try { navigator.clipboard.writeText(txt).then(ok, fallback); } catch(e){ fallback(); }
+}
+// ---------- modes ----------
+const isScrHash = () => location.hash === '#screener';
+function setMode(m){
+  const was = S.mode;
+  S.mode = m;
+  document.body.classList.toggle('scrmode', m === 'screener');
+  [...$('mode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
+  if (m === 'screener'){ refreshScr(); return; }
+  if (was === 'screener' && S.cur){
+    if (S.dirty){ S.dirty = false; render(); }
+    else if (S.mapCard) setTimeout(() => S.mapCard.map.invalidateSize(), 0);
+  }
+}
+
 function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(e._t); e._t = setTimeout(() => e.style.display = 'none', 2600); }
 
 // ---------- notes ----------
@@ -961,6 +1200,7 @@ function renderNotes(){
    '<p><b>Colors on tiles</b>: green = the change points to a tighter / stronger market for sellers, red = softer. Shares change in percentage points. Median sq ft is not colored.</p>'+
    '<p><b>Percentile ranks</b> compare a zip or county with the others in its state for the latest month (100 = highest value, not necessarily "best"). For zips without a name in the source, the state is inferred from the first three digits.</p>'+
    '<p><b>Mortgage Distress</b> shows the share of mortgages 30–89 days and 90+ days delinquent, from the CFPB Mortgage Performance Trends data (National Mortgage Database). It is <b>county-level</b>, not zip-level: each zip uses the county holding the largest share of its land area (Census 2020 zip-area-to-county file). CFPB only publishes counties with at least 1,000 sampled mortgages; elsewhere the panel says so and shows the state series. CFPB data are published with a lag of several months.</p>'+
+   '<p><b>Screener</b> ranks every state, metro, county or zip on the same N-month trailing averages. Each YoY compares the trailing average with the same window 12 months earlier, so it matches the explorer tiles. The screener keeps the last 24 months, so YoY figures need a window of 12 months or less. Only places with active listings in the last 3 months are included. Market score uses the market read\'s six signals, benchmarked against the state for zips and counties and against the US for states and metros. A metro\'s state is its first-listed state. Price-reduced count is the number of active listings with a price cut that month.</p>'+
    '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';
 }
@@ -971,7 +1211,19 @@ attachSearch($('cq'), $('cres'), (t,id) => selectCmp(t,id));
 $('usbtn').addEventListener('click', () => select('us','us'));
 $('cx').addEventListener('click', () => selectCmp(null));
 $('cq').addEventListener('input', () => { if (!$('cq').value.trim() && S.cmp) selectCmp(null); });
-$('n').addEventListener('input', () => { const v = Math.round(+$('n').value); if (v >= 1 && v <= 24 && v !== S.N){ S.N = v; if (S.cur) render(); } });
+$('n').addEventListener('input', () => {
+  const v = Math.round(+$('n').value);
+  if (!(v >= 1 && v <= 24 && v !== S.N)) return;
+  S.N = v;
+  if (S.mode === 'screener'){ refreshScr(); if (S.cur) S.dirty = true; }   // explorer re-renders when shown again
+  else if (S.cur) render();
+});
+$('mode').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.v === S.mode) return;
+  if (b.dataset.v === 'screener'){ location.hash = 'screener'; return; }
+  if (S.cur) location.hash = geoKey(S.cur)+(S.cmp ? '&vs='+geoKey(S.cmp) : '');
+  else { try { history.pushState(null, '', location.pathname+location.search); } catch(e){} setMode('explorer'); }
+});
 $('n').addEventListener('blur', () => { $('n').value = S.N; });
 $('rng').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; S.win = +b.dataset.v;
   [...$('rng').children].forEach(x => x.classList.toggle('on', x === b)); if (S.cur) drawCharts(S.cur, benchGeo(S.cur)); });
@@ -1008,9 +1260,16 @@ function emptyState(){
   S.counts = {}; S.meta.idx.forEach(r => S.counts[r[0]] = (S.counts[r[0]] || 0)+1);
   $('cov').textContent = 'realtor.com listing data · '+(S.counts.zip || 0).toLocaleString()+' zips · '+(S.counts.county || 0).toLocaleString()+' counties · '+(S.counts.metro || 0).toLocaleString()+' metros · '+mlong(M[0])+' – '+mlong(M[M.length-1]);
   buildSearch(); renderNotes();
+  if (isScrHash()){ emptyState(); setMode('screener'); return; }
+  S.mode = 'explorer';
   if (!(await openFromHash())) emptyState();
 })();
 window.addEventListener('hashchange', async () => {
+  if (!S.meta) return;
+  if (isScrHash()){ setMode('screener'); return; }
+  const fromScr = S.mode === 'screener';
+  setMode('explorer');
+  if (fromScr) window.scrollTo(0, 0);
   const {a, b} = parseHash();
   const same = (g, k) => g && k && g.type === k[0] && g.id === k[1];
   if (a && (!same(S.cur, a) || !!b !== !!S.cmp || (b && !same(S.cmp, b)))) openFromHash();
