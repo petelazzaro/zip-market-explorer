@@ -185,6 +185,10 @@ body.valmode #main, body.valmode .xo, body.valmode #scrv{display:none!important}
 .vwarn{font-size:12.5px;color:var(--warn);padding:8px 10px;border:1px solid rgba(224,166,58,.35);border-radius:10px;margin-top:8px}
 .vcav{font-size:12.5px;color:var(--ink2);line-height:1.6;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
 .vbtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.vlink{color:var(--teal);text-decoration:none;border-bottom:1px dashed rgba(44,197,180,.5)}
+.vlink:hover{color:var(--ink)}
+.vform .ctl.zip input{width:130px;font-size:17px}
+.vform .ctl.sq input{font-size:17px}
 .sctl{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
 .sctl .ctl input[type=number]{width:120px}
 .sctl select{width:auto;min-width:150px}
@@ -1678,7 +1682,7 @@ function realtorTip(type, name){
 // ---------- ballpark value ----------
 // A zip-wide ballpark for one home from area averages; not a valuation. The address is sent to the
 // US Census geocoder (JSONP, since it sends no CORS header) only to find its zip and county.
-const VAL = {built:false, last:null, seq:0};
+const VAL = {built:false, last:null, seq:0, found:null};
 function censusGeocode(address){
   return new Promise((resolve, reject) => {
     const cb = 'zmeGeo'+Date.now()+Math.floor(Math.random()*1e6), sc = document.createElement('script');
@@ -1700,40 +1704,68 @@ function censusGeocode(address){
 function buildValUI(){
   $('valv').innerHTML = '<div class="card controls" style="margin-top:0;display:block">'+
     '<h2 style="margin-bottom:6px">Ballpark value'+tipBtn('ballpark')+'</h2>'+
-    '<div class="sub" style="margin:0 0 12px">A rough value range for one home from this zip\'s recent sales, current listings and Zillow\'s typical value. Uses the trailing-average box above.</div>'+
-    '<form class="vform" id="vform" autocomplete="off">'+
-      '<div class="ctl addr"><label class="l" for="vaddr">Street address</label><input type="text" id="vaddr" placeholder="e.g. 2100 Main St, Tucker, GA 30084"></div>'+
-      '<div class="ctl zip"><label class="l" for="vzip">or zip</label><input type="text" id="vzip" inputmode="numeric" maxlength="5" placeholder="30084"></div>'+
+    '<div class="sub" style="margin:0 0 12px">A rough value range for one home from its zip\'s recent sales, current listings and Zillow\'s typical value. Only the zip and the size matter; the range updates as you type. Uses the trailing-average box above.</div>'+
+    '<div class="vform">'+
+      '<div class="ctl zip"><label class="l" for="vzip">Zip</label><input type="text" id="vzip" inputmode="numeric" autocomplete="postal-code" placeholder="30084"></div>'+
       '<div class="ctl sq"><label class="l" for="vsq">Home size (sq ft)</label><input type="number" id="vsq" min="200" max="30000" step="10" inputmode="numeric" placeholder="1,850"></div>'+
-      '<div class="ctl"><button class="go" type="submit">Get ballpark</button></div>'+
+    '</div>'+
+    '<div class="vpriv"><a href="#" id="vlook" class="vlink">Don\'t know the zip? Look it up by address</a></div>'+
+    '<form class="vform" id="vaddrrow" style="display:none;margin-top:10px" autocomplete="off">'+
+      '<div class="ctl addr"><label class="l" for="vaddr">Street address</label><input type="text" id="vaddr" placeholder="e.g. 2100 Main St, Tucker, GA"></div>'+
+      '<div class="ctl"><button class="go" type="submit">Find zip</button></div>'+
+      '<div class="vpriv" style="flex-basis:100%;margin-top:0">The address is sent to the US Census Bureau\'s public geocoder only to find its zip and county; it isn\'t stored or put in the page link.</div>'+
     '</form>'+
-    '<div class="vpriv">An address is sent to the US Census Bureau\'s public geocoder only to find its zip and county; it isn\'t stored or put in the page link.</div>'+
     '</div><div id="vres" class="vres"></div>';
-  $('vform').addEventListener('submit', e => { e.preventDefault(); runBallpark(); });
+  let t = null;
+  const later = () => { clearTimeout(t); t = setTimeout(runBallpark, 300); };
+  $('vzip').addEventListener('input', () => {
+    // A pasted address or "GA 30084-1234": keep its zip (the last 5-digit group).
+    const v = $('vzip').value, m = v.match(/\b\d{5}\b/g);
+    if (/[^\d\s]/.test(v) && m) $('vzip').value = m[m.length-1];
+    VAL.found = null;   // a typed zip replaces a looked-up one
+    later();
+  });
+  $('vsq').addEventListener('input', later);
+  $('vlook').addEventListener('click', e => { e.preventDefault(); const r = $('vaddrrow'); r.style.display = r.style.display === 'none' ? '' : 'none'; if (r.style.display === '') $('vaddr').focus(); });
+  $('vaddrrow').addEventListener('submit', e => { e.preventDefault(); lookupAddress(); });
   VAL.built = true;
+  $('vres').innerHTML = '<div class="card empty" style="padding:28px 20px">Enter a zip and the home\'s size to see a ballpark.</div>';
 }
-// Trailing average of a series at an index, falling back to the county (then nothing) when the zip has none.
+// Trailing average of a series at an index (null when the place has none).
 function valAt(g, k, i){ return g ? T(g,k)[i] : null; }
-async function runBallpark(){
-  const my = ++VAL.seq, addr = $('vaddr').value.trim(), zipIn = $('vzip').value.trim(), sq = +$('vsq').value;
-  const out = $('vres');
-  if (!(sq >= 200 && sq <= 30000)){ out.innerHTML = '<div class="card vwarn">Enter the home\'s size in square feet (200–30,000).</div>'; return; }
-  if (!addr && !/^\d{5}$/.test(zipIn)){ out.innerHTML = '<div class="card vwarn">Enter a street address, or a 5-digit zip.</div>'; return; }
-  out.innerHTML = '<div class="card loading">'+(addr ? 'Looking up the address…' : 'Loading zip '+esc(zipIn)+'…')+'</div>';
-  let zip = zipIn, county = null, matched = null;
+async function lookupAddress(){
+  const addr = $('vaddr').value.trim(), out = $('vres');
+  if (!addr) return;
+  out.innerHTML = '<div class="card loading">Looking up the address…</div>';
   try {
-    if (addr){
-      const r = await censusGeocode(addr + (zipIn && !/\b\d{5}\b/.test(addr) ? ' '+zipIn : ''));
-      matched = r.matched; county = r.county;
-      zip = [r.zcta, r.zip].find(z => z && idxRow('zip', z)) || r.zcta || r.zip;
-    }
-    if (my !== VAL.seq) return;
-    const g = zip && idxRow('zip', zip) ? await getGeo('zip', zip) : null;
-    if (!county && zip){ try { const z = await loadZ2C(); county = z[zip] ? z[zip][0] : null; } catch(e){} }
+    const r = await censusGeocode(addr);
+    // Prefer the zip area (ZCTA) we have data for; building-only zips like 10118 fall back to it.
+    const zip = [r.zcta, r.zip].find(z => z && idxRow('zip', z)) || r.zcta || r.zip;
+    VAL.found = {zip, county:r.county, matched:r.matched};
+    $('vzip').value = zip || '';
+    runBallpark();
+  } catch(e){ out.innerHTML = '<div class="card vwarn">Couldn\'t find that address: '+esc(e.message)+'.</div>'; }
+}
+async function runBallpark(){
+  const my = ++VAL.seq, zip = $('vzip').value.trim(), sq = +$('vsq').value, out = $('vres');
+  if (!/^\d{5}$/.test(zip) || !(sq >= 200 && sq <= 30000)){
+    VAL.last = null;
+    out.innerHTML = '<div class="card empty" style="padding:28px 20px">'+
+      (!/^\d{5}$/.test(zip) ? 'Enter a 5-digit zip' : 'Enter the home\'s size (200–30,000 sq ft)')+' to see a ballpark.</div>';
+    return;
+  }
+  const found = VAL.found && VAL.found.zip === zip ? VAL.found : null;
+  try {
+    const g = idxRow('zip', zip) ? await getGeo('zip', zip) : null;
+    let county = found ? found.county : null;
+    if (!county){ try { const z = await loadZ2C(); county = z[zip] ? z[zip][0] : null; } catch(e){} }
     const cg = county && idxRow('county', county) ? await getGeo('county', county) : null;
     if (my !== VAL.seq) return;
-    if (!g && !cg){ out.innerHTML = '<div class="card vwarn">No market data for '+(zip ? 'zip '+esc(zip) : 'that address')+'. Try a nearby zip.</div>'; return; }
-    VAL.last = {g, cg, sq, matched, zip};
+    if (!g && !cg){
+      out.innerHTML = '<div class="card vwarn">No market data for zip '+esc(zip)+'. It may be a PO-box or single-building zip — try the address lookup, which finds the surrounding zip area.</div>';
+      return;
+    }
+    VAL.last = {g, cg, sq, matched:found ? found.matched : null, zip};
     drawBallpark();
   } catch(e){ if (my === VAL.seq) out.innerHTML = '<div class="card vwarn">Couldn\'t get a ballpark: '+esc(e.message)+'.</div>'; }
 }

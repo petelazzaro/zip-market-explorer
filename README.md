@@ -43,9 +43,9 @@ The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once
 
 ## Ballpark value (v07)
 
-The **Ballpark value** tab (link: `#value`) gives a rough value range for one home from a street address (or a zip) and its size in square feet.
+The **Ballpark value** tab (link: `#value`) gives a rough value range for one home from its **zip** and **size in square feet**, the only two inputs the math uses. The range updates as you type, with no button. Pasting a full address into the zip box keeps its zip (the last 5-digit group, so a house number or zip+4 is ignored).
 
-- **Address lookup:** the address goes to the US Census Bureau geocoder (`geographies/onelineaddress`, JSONP, because that service sends no CORS header). One call returns the zip area (ZCTA) and the county. The app uses the ZCTA when we have data for it, otherwise the address's postal zip (e.g. the Empire State Building's 10118 → 10001). The address is never stored or put in the URL.
+- **Optional address lookup** ("Don't know the zip? Look it up by address"): the address goes to the US Census Bureau geocoder (`geographies/onelineaddress`, JSONP, because that service sends no CORS header). One call returns the zip area (ZCTA) and the county, and fills in the zip. The app uses the ZCTA when we have data for it, otherwise the address's postal zip. This also rescues building-only and PO-box zips (e.g. the Empire State Building's 10118 → 10001). The address is never stored or put in the URL. Without a lookup, the county used for fallbacks comes from the zip-to-county table.
 - **Three figures**, all at the trailing-average setting:
   1. **Recent sales:** sq ft × Redfin median sale price per sq ft.
   2. **Current listings, at what homes sell for:** sq ft × realtor.com asking price per sq ft × Redfin sale-to-list.
