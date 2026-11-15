@@ -166,6 +166,25 @@ tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
 .scrv{display:none}
 body.scrmode .scrv{display:block}
 body.scrmode #main, body.scrmode .xo{display:none!important}
+.valv{display:none}
+body.valmode .valv{display:block}
+body.valmode #main, body.valmode .xo, body.valmode #scrv{display:none!important}
+.vform{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.vform .ctl.addr{flex:1 1 320px}
+.vform .ctl.zip input{width:110px}
+.vform .ctl.sq input{width:130px}
+.vform .go{background:rgba(217,178,95,.16);border:1px solid rgba(217,178,95,.5);color:var(--gold);border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+.vpriv{font-size:12px;color:var(--muted);margin-top:8px}
+.vres{margin-top:14px}
+.vrange{font-family:"Playfair Display",serif;font-size:38px;font-weight:700;color:var(--gold);margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.vmid{color:var(--ink2);font-size:14px}
+.vanch{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:14px 0}
+.vanch .kpi .val{font-size:23px}
+.vanch .how{font-size:12px;color:var(--ink2);margin-top:6px;line-height:1.5}
+.vanch .src{font-size:11px;color:var(--warn);margin-top:4px}
+.vwarn{font-size:12.5px;color:var(--warn);padding:8px 10px;border:1px solid rgba(224,166,58,.35);border-radius:10px;margin-top:8px}
+.vcav{font-size:12.5px;color:var(--ink2);line-height:1.6;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.vbtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
 .sctl{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
 .sctl .ctl input[type=number]{width:120px}
 .sctl select{width:auto;min-width:150px}
@@ -206,7 +225,7 @@ body.scrmode #main, body.scrmode .xo{display:none!important}
       <h1>Zip <span>Market</span> Explorer</h1>
       <div class="sub" id="cov">realtor.com listing-market data</div>
     </div>
-    <div class="seg modeseg" id="mode" role="tablist"><button data-v="explorer" class="on">Explorer</button><button data-v="screener">Screener</button></div>
+    <div class="seg modeseg" id="mode" role="tablist"><button data-v="explorer" class="on">Explorer</button><button data-v="screener">Screener</button><button data-v="value">Ballpark value</button></div>
   </div>
 
   <div class="controls card">
@@ -245,6 +264,7 @@ body.scrmode #main, body.scrmode .xo{display:none!important}
 
   <div id="main"><div class="card loading">Loading…</div></div>
   <div id="scrv" class="scrv"></div>
+  <div id="valv" class="valv"></div>
 
   <div class="card notes" style="margin-top:22px" id="notes"></div>
 </div>
@@ -344,7 +364,7 @@ const isNum = v => v !== null && v !== undefined && isFinite(v);
 const fmt = {
   usd: v => !isNum(v) ? '–' : v >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : v >= 1e3 ? '$'+Math.round(v/1e3)+'K' : '$'+Math.round(v),
   usdFull: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
-  psf: v => !isNum(v) ? '–' : '$'+Math.round(v),
+  psf: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
   num: v => !isNum(v) ? '–' : Math.round(v).toLocaleString(),
   num1: v => !isNum(v) ? '–' : (Math.round(v*10)/10).toLocaleString(),
   pct: v => !isNum(v) ? '–' : (v*100).toFixed(1)+'%',
@@ -586,6 +606,7 @@ const TIPS = {
   map:'<b>Location</b> — the gold outline is the selected area (US Census boundaries). Dashed = its county or state, for context; violet = the place you\'re comparing with. Zoom in to see zip outlines, and click any spot to open its zip, county, metro or state.',
   distress:'<b>Mortgage Distress</b> — the share of mortgages behind on payments, from the CFPB\'s National Mortgage Database. It\'s county-level: a zip uses the county that holds most of its land. The data runs several months behind realtor.com.',
   zillow:'<b>Values &amp; rents</b> — Zillow Research\'s typical home value (ZHVI) and typical rent (ZORI), plus measures derived from them. Unlike listings and sales, ZHVI covers all homes, not just those on the market that month. Zillow runs about a month behind and smooths its figures, so it is slow to show turning points.',
+  ballpark:'<b>Ballpark value</b> — a rough range for one home, built from area averages: recent sale prices per sq ft (Redfin), current asking prices per sq ft adjusted by what homes sell for vs asking (realtor.com + Redfin), and Zillow\'s typical home value scaled to this home\'s size. It knows only the size and the zip — not condition, lot, view, beds and baths, or the exact street — so it is a sanity check, not an appraisal.',
   closed:'<b>Closed sales</b> — recorded sales from Redfin, shown alongside realtor.com\'s listings. Listings show what sellers are asking; closed sales show what buyers actually paid and how fast homes sold. Redfin\'s zip figures are 3-month rolling.',
   monthly:'<b>Monthly data</b> — every month\'s realtor.com values, newest first, followed by your {N}-month trailing averages (teal headers). ⚑ marks months realtor.com flagged for data quality.',
   // charts
@@ -1654,15 +1675,128 @@ function realtorTip(type, name){
   return 'Homes for sale in '+(type === 'state' ? name : placeOf(name) || name)+' on realtor.com';
 }
 
+// ---------- ballpark value ----------
+// A zip-wide ballpark for one home from area averages; not a valuation. The address is sent to the
+// US Census geocoder (JSONP, since it sends no CORS header) only to find its zip and county.
+const VAL = {built:false, last:null, seq:0};
+function censusGeocode(address){
+  return new Promise((resolve, reject) => {
+    const cb = 'zmeGeo'+Date.now()+Math.floor(Math.random()*1e6), sc = document.createElement('script');
+    const done = () => { delete window[cb]; sc.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); reject(new Error('the Census address lookup timed out')); }, 15000);
+    window[cb] = j => {
+      done();
+      const m = j && j.result && j.result.addressMatches && j.result.addressMatches[0];
+      if (!m) return reject(new Error('the Census lookup couldn\'t find that address — check the spelling, or enter the zip instead'));
+      const geo = m.geographies || {}, pick = (re) => { const k = Object.keys(geo).find(x => re.test(x)); return k && geo[k][0] ? geo[k][0].GEOID : null; };
+      resolve({matched:m.matchedAddress, zcta:pick(/ZIP Code Tabulation/i), county:pick(/^Counties$/i), zip:(m.addressComponents || {}).zip || null});
+    };
+    sc.onerror = () => { done(); reject(new Error('the Census address lookup couldn\'t be reached')); };
+    sc.src = 'https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?'+new URLSearchParams({
+      address, benchmark:'Public_AR_Current', vintage:'Current_Current', layers:'2,82', format:'jsonp', callback:cb});
+    document.head.appendChild(sc);
+  });
+}
+function buildValUI(){
+  $('valv').innerHTML = '<div class="card controls" style="margin-top:0;display:block">'+
+    '<h2 style="margin-bottom:6px">Ballpark value'+tipBtn('ballpark')+'</h2>'+
+    '<div class="sub" style="margin:0 0 12px">A rough value range for one home from this zip\'s recent sales, current listings and Zillow\'s typical value. Uses the trailing-average box above.</div>'+
+    '<form class="vform" id="vform" autocomplete="off">'+
+      '<div class="ctl addr"><label class="l" for="vaddr">Street address</label><input type="text" id="vaddr" placeholder="e.g. 2100 Main St, Tucker, GA 30084"></div>'+
+      '<div class="ctl zip"><label class="l" for="vzip">or zip</label><input type="text" id="vzip" inputmode="numeric" maxlength="5" placeholder="30084"></div>'+
+      '<div class="ctl sq"><label class="l" for="vsq">Home size (sq ft)</label><input type="number" id="vsq" min="200" max="30000" step="10" inputmode="numeric" placeholder="1,850"></div>'+
+      '<div class="ctl"><button class="go" type="submit">Get ballpark</button></div>'+
+    '</form>'+
+    '<div class="vpriv">An address is sent to the US Census Bureau\'s public geocoder only to find its zip and county; it isn\'t stored or put in the page link.</div>'+
+    '</div><div id="vres" class="vres"></div>';
+  $('vform').addEventListener('submit', e => { e.preventDefault(); runBallpark(); });
+  VAL.built = true;
+}
+// Trailing average of a series at an index, falling back to the county (then nothing) when the zip has none.
+function valAt(g, k, i){ return g ? T(g,k)[i] : null; }
+async function runBallpark(){
+  const my = ++VAL.seq, addr = $('vaddr').value.trim(), zipIn = $('vzip').value.trim(), sq = +$('vsq').value;
+  const out = $('vres');
+  if (!(sq >= 200 && sq <= 30000)){ out.innerHTML = '<div class="card vwarn">Enter the home\'s size in square feet (200–30,000).</div>'; return; }
+  if (!addr && !/^\d{5}$/.test(zipIn)){ out.innerHTML = '<div class="card vwarn">Enter a street address, or a 5-digit zip.</div>'; return; }
+  out.innerHTML = '<div class="card loading">'+(addr ? 'Looking up the address…' : 'Loading zip '+esc(zipIn)+'…')+'</div>';
+  let zip = zipIn, county = null, matched = null;
+  try {
+    if (addr){
+      const r = await censusGeocode(addr + (zipIn && !/\b\d{5}\b/.test(addr) ? ' '+zipIn : ''));
+      matched = r.matched; county = r.county;
+      zip = [r.zcta, r.zip].find(z => z && idxRow('zip', z)) || r.zcta || r.zip;
+    }
+    if (my !== VAL.seq) return;
+    const g = zip && idxRow('zip', zip) ? await getGeo('zip', zip) : null;
+    if (!county && zip){ try { const z = await loadZ2C(); county = z[zip] ? z[zip][0] : null; } catch(e){} }
+    const cg = county && idxRow('county', county) ? await getGeo('county', county) : null;
+    if (my !== VAL.seq) return;
+    if (!g && !cg){ out.innerHTML = '<div class="card vwarn">No market data for '+(zip ? 'zip '+esc(zip) : 'that address')+'. Try a nearby zip.</div>'; return; }
+    VAL.last = {g, cg, sq, matched, zip};
+    drawBallpark();
+  } catch(e){ if (my === VAL.seq) out.innerHTML = '<div class="card vwarn">Couldn\'t get a ballpark: '+esc(e.message)+'.</div>'; }
+}
+function drawBallpark(){
+  if (!VAL.last) return;
+  const {g, cg, sq, matched, zip} = VAL.last, N = S.N, M = S.meta.months, li = M.length-1, zi = zli();
+  const where = g ? 'zip '+g.id+' ('+g.n+')' : cg.n;
+  // one anchor = {label, value, how, from}; each input comes from the zip, else the county
+  const pickVal = (k, i) => { const z = valAt(g, k, i); if (isNum(z)) return [z, g ? 'zip' : 'county']; const c = valAt(cg, k, i); return isNum(c) ? [c, 'county'] : [null, null]; };
+  const anchors = [];
+  { const [psf, src] = pickVal('rs_f', li);
+    if (isNum(psf)) anchors.push({label:'Recent sales', value:sq*psf, src,
+      how:fmt.num(sq)+' sq ft × '+fmt.psf(psf)+'/sq ft — Redfin median <b>sale</b> price per sq ft, '+N+'M avg'+(src === 'zip' ? ' (zip figures are 3-mo rolling)' : '')+'.'}); }
+  { const [lpsf, s1] = pickVal('f', li), [stl, s2] = pickVal('rs_sl', li);
+    if (isNum(lpsf) && isNum(stl)) anchors.push({label:'Current listings, at what homes sell for', value:sq*lpsf*stl, src:s1 === 'county' || s2 === 'county' ? 'county' : 'zip',
+      how:fmt.num(sq)+' sq ft × '+fmt.psf(lpsf)+'/sq ft asking (realtor.com, '+N+'M avg) × '+(stl*100).toFixed(1)+'% sale-to-list (Redfin).'}); }
+  { const [zv, s1] = pickVal('zv', zi), [msq, s2] = pickVal('s', li);
+    if (isNum(zv) && isNum(msq)) anchors.push({label:'Zillow typical home, scaled to size', value:zv*sq/msq, src:s1 === 'county' || s2 === 'county' ? 'county' : 'zip',
+      how:fmt.usd(zv)+' typical value (Zillow, '+mlong(M[zi])+') × '+fmt.num(sq)+' ÷ '+fmt.num(msq)+' sq ft (median listing size).'}); }
+  const out = $('vres');
+  if (!anchors.length){ out.innerHTML = '<div class="card vwarn">Not enough price data for '+esc(where)+' to give a ballpark.</div>'; return; }
+  const vals = anchors.map(a => a.value).sort((a, b) => a-b);
+  const mid = vals.length % 2 ? vals[(vals.length-1)/2] : (vals[vals.length/2-1]+vals[vals.length/2])/2;
+  // the spread of the anchors, never narrower than ±5% (±10% with a single anchor)
+  const pad = vals.length > 1 ? 0.05 : 0.10;
+  const lo = Math.min(vals[0], mid*(1-pad)), hi = Math.max(vals[vals.length-1], mid*(1+pad));
+  const r5 = v => Math.round(v/5000)*5000;
+  const warns = [];
+  const msq = valAt(g, 's', li) || valAt(cg, 's', li);
+  if (isNum(msq) && (sq > msq*2 || sq < msq*0.5)) warns.push('This home is '+(sq > msq ? 'much larger' : 'much smaller')+' than the typical listing here ('+fmt.num(msq)+' sq ft); per-sq-ft values change with size, so the range is less reliable.');
+  if (g){
+    const al = T(g,'al')[li], hs = T(g,'rs_n')[li];
+    if (isNum(al) && al < 10) warns.push('Thin market: under 10 active listings on average, so the zip\'s figures can swing month to month.');
+    if (g.rs && isNum(hs) && hs < 5) warns.push('Few recent sales in this zip (under 5 a month), so the sales-based figure is less reliable.');
+  } else warns.push('No zip-level data matched, so every figure here is county-wide.');
+  if (anchors.some(a => a.src === 'county') && g) warns.push('Where the zip lacked a figure, the county\'s was used (marked).');
+  const spread = (hi-lo)/mid;
+  out.innerHTML = '<div class="card">'+
+    '<div class="sub" style="margin:0">'+(matched ? 'Address matched: <b>'+esc(matched)+'</b> · ' : '')+esc(where)+' · '+fmt.num(sq)+' sq ft · '+N+'-month averages</div>'+
+    '<div class="vrange">'+fmt.usd(r5(lo))+' – '+fmt.usd(r5(hi))+'</div>'+
+    '<div class="vmid">Midpoint '+fmt.usd(r5(mid))+' · range width ±'+Math.round(spread*50)+'% · '+anchors.length+' of 3 methods available</div>'+
+    warns.map(w => '<div class="vwarn">'+esc(w)+'</div>').join('')+
+    '<div class="vanch">'+anchors.map(a => '<div class="card kpi"><div class="lab">'+esc(a.label)+'</div><div class="val">'+fmt.usd(a.value)+'</div><div class="how">'+a.how+'</div>'+
+      (a.src === 'county' ? '<div class="src">Uses county-wide figures</div>' : '')+'</div>').join('')+'</div>'+
+    '<div class="vcav"><b>This is a ballpark, not an appraisal.</b> It knows only the size and the area, so condition, updates, lot, view, beds and baths, and the exact street can move a home\'s value by 15–25% or more. For a price you\'d act on, get comparable sales from an agent or an appraisal.</div>'+
+    '<div class="vbtns">'+(g ? '<button class="btn" id="vopen">Open zip '+esc(g.id)+' in Explorer</button>' : '')+
+      (g && realtorURL('zip', g.id, g.n, g.st) ? '<a class="rbtn" href="'+esc(realtorURL('zip', g.id, g.n, g.st))+'" target="_blank" rel="noopener">Homes for sale in '+esc(g.id)+' ↗</a>' : '')+'</div>'+
+    '</div>';
+  if (g) $('vopen').onclick = () => { location.hash = 'zip-'+g.id; };
+}
+
 // ---------- modes ----------
 const isScrHash = () => location.hash === '#screener';
+const isValHash = () => location.hash === '#value';
 function setMode(m){
   const was = S.mode;
   S.mode = m;
   document.body.classList.toggle('scrmode', m === 'screener');
+  document.body.classList.toggle('valmode', m === 'value');
   [...$('mode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
   if (m === 'screener'){ refreshScr(); return; }
-  if (was === 'screener' && S.cur){
+  if (m === 'value'){ if (!VAL.built) buildValUI(); return; }
+  if ((was === 'screener' || was === 'value') && S.cur){
     if (S.dirty){ S.dirty = false; render(); }
     else if (S.mapCard) setTimeout(() => S.mapCard.map.invalidateSize(), 0);
   }
@@ -1674,7 +1808,7 @@ function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'b
 function renderNotes(){
   const M = S.meta.months;
   $('notes').innerHTML =
-   '<p><b>Version v06.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   '<p><b>Version v07.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
    'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
    '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
    '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
@@ -1693,6 +1827,7 @@ function renderNotes(){
      (S.meta.zl.first.zr ? mlong(S.meta.zl.first.zr)+' – '+mlong(S.meta.zl.last.zr) : '')+'. Zillow posts mid-month, so its latest month can trail the listing data; tiles show Zillow\'s latest month. '+
      'Gross rent yield = ZORI × 12 ÷ ZHVI; price-to-rent = ZHVI ÷ (ZORI × 12); list-to-value = realtor.com median list price ÷ ZHVI — all computed in your browser. ZORI covers far fewer zips than ZHVI, and Zillow publishes no state-level rents. '+
      'Zillow\'s figures are smoothed and lag turning points, so they don\'t feed the market read.</p>' : '')+
+   '<p><b>Ballpark value</b> gives a rough range for one home from three area figures: size × Redfin median sale price per sq ft; size × realtor.com asking price per sq ft × Redfin sale-to-list; and Zillow\'s typical home value × (size ÷ median listing size). The range spans those figures (at least ±5%, or ±10% when only one is available), using the zip\'s figures, or the county\'s where the zip has none. Addresses are looked up with the US Census Bureau geocoder only to find the zip and county. It is not an appraisal.</p>'+
    '<p><b>Screener</b> ranks every state, metro, county or zip on the same N-month trailing averages. Each YoY compares the trailing average with the same window 12 months earlier, so it matches the explorer tiles. The screener keeps the last 24 months, so YoY figures need a window of 12 months or less. Only places with active listings in the last 3 months are included. Market score uses the market read\'s six signals, benchmarked against the state for zips and counties and against the US for states and metros. A metro\'s state is its first-listed state. Price-reduced count is the number of active listings with a price cut that month.</p>'+
    '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
    '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';
@@ -1709,11 +1844,13 @@ $('n').addEventListener('input', () => {
   if (!(v >= 1 && v <= 24 && v !== S.N)) return;
   S.N = v;
   if (S.mode === 'screener'){ refreshScr(); if (S.cur) S.dirty = true; }   // explorer re-renders when shown again
+  else if (S.mode === 'value'){ drawBallpark(); if (S.cur) S.dirty = true; }
   else if (S.cur) render();
 });
 $('mode').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b || b.dataset.v === S.mode) return;
   if (b.dataset.v === 'screener'){ location.hash = 'screener'; return; }
+  if (b.dataset.v === 'value'){ location.hash = 'value'; return; }
   if (S.cur) location.hash = geoKey(S.cur)+(S.cmp ? '&vs='+geoKey(S.cmp) : '');
   else { try { history.pushState(null, '', location.pathname+location.search); } catch(e){} setMode('explorer'); }
 });
@@ -1754,13 +1891,15 @@ function emptyState(){
   $('cov').textContent = 'realtor.com listing data · '+(S.counts.zip || 0).toLocaleString()+' zips · '+(S.counts.county || 0).toLocaleString()+' counties · '+(S.counts.metro || 0).toLocaleString()+' metros · '+mlong(M[0])+' – '+mlong(M[M.length-1]);
   buildSearch(); renderNotes();
   if (isScrHash()){ emptyState(); setMode('screener'); return; }
+  if (isValHash()){ emptyState(); setMode('value'); return; }
   S.mode = 'explorer';
   if (!(await openFromHash())) emptyState();
 })();
 window.addEventListener('hashchange', async () => {
   if (!S.meta) return;
   if (isScrHash()){ setMode('screener'); return; }
-  const fromScr = S.mode === 'screener';
+  if (isValHash()){ setMode('value'); return; }
+  const fromScr = S.mode === 'screener' || S.mode === 'value';
   setMode('explorer');
   if (fromScr) window.scrollTo(0, 0);
   const {a, b} = parseHash();

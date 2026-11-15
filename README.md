@@ -41,6 +41,22 @@ A county-level panel with the share of mortgages 30–89 days and 90+ days delin
 
 The Census file (`raw/census/tab20_zcta520_county20_natl.txt`) only changes once a decade.
 
+## Ballpark value (v07)
+
+The **Ballpark value** tab (link: `#value`) gives a rough value range for one home from a street address (or a zip) and its size in square feet.
+
+- **Address lookup:** the address goes to the US Census Bureau geocoder (`geographies/onelineaddress`, JSONP, because that service sends no CORS header). One call returns the zip area (ZCTA) and the county. The app uses the ZCTA when we have data for it, otherwise the address's postal zip (e.g. the Empire State Building's 10118 → 10001). The address is never stored or put in the URL.
+- **Three figures**, all at the trailing-average setting:
+  1. **Recent sales:** sq ft × Redfin median sale price per sq ft.
+  2. **Current listings, at what homes sell for:** sq ft × realtor.com asking price per sq ft × Redfin sale-to-list.
+  3. **Zillow typical home, scaled to size:** ZHVI × (sq ft ÷ realtor.com median listing size).
+
+  Each uses the zip's figure, or the county's where the zip has none (marked).
+- **The range** spans the three figures, at least ±5% around their midpoint (±10% when only one is available), rounded to $5K.
+- **Warnings** appear for a home far from the typical size, a thin market (under 10 listings), few sales (under 5 a month), and county fallbacks.
+- **It's a ballpark, not an appraisal:** it knows only size and area, not condition, lot, beds and baths, or the street. The page says so. Real per-home valuations need comparable-sales data from a paid provider.
+- Everything runs in the browser, with no new data files.
+
 ## Values & rents from Zillow (v06)
 
 Zillow Research's **ZHVI** (typical home value: middle tier of single-family homes and condos, smoothed and seasonally adjusted by Zillow) and **ZORI** (typical observed rent: all homes plus multifamily, smoothed), shown alongside realtor.com listings and Redfin closed sales.
