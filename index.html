@@ -1,0 +1,1946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zip Market Explorer</title>
+<meta name="description" content="realtor.com listing-market data for every US zip, county, metro and state, with adjustable trailing averages.">
+<meta name="theme-color" content="#0a1324">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root{
+  --bg:#0a1324; --surface:#0f1a30; --glass:rgba(255,255,255,.045); --glass2:rgba(255,255,255,.08);
+  --line:rgba(255,255,255,.10); --ink:#eef2fb; --ink2:#b7c1d9; --muted:#7f8bab;
+  --gold:#d9b25f; --teal:#2cc5b4;
+  --s1:#BA8628; --s2:#139A8A; --s3:#8C7BF5; --ref:#8a93a8;
+  --good:#3fbf7f; --warn:#e0a63a; --bad:#e46a6a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:radial-gradient(1200px 600px at 10% -10%,#1a2b52 0%,transparent 60%),radial-gradient(900px 500px at 110% 10%,#0d3b44 0%,transparent 55%),var(--bg);background-color:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,sans-serif;font-size:15px;min-height:100%}
+body{overflow-x:hidden}
+.wrap{max-width:1240px;margin:0 auto;padding:22px 16px 60px}
+h1{font-family:"Playfair Display",serif;font-weight:700;font-size:30px;margin:0;letter-spacing:.2px}
+h1 span{color:var(--gold)}
+h2{font-family:"Playfair Display",serif;font-weight:600;font-size:21px;margin:0 0 4px}
+h3{font-size:14px;font-weight:700;margin:0;color:var(--ink)}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}
+/* Blur only on the controls bar: blur behind dozens of chart canvases causes repaint glitches and slows scrolling. */
+.controls.card{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.top{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin:14px 0 18px;position:relative;z-index:10}
+.search{position:relative;flex:1 1 300px;min-width:0}
+.search.cmp{flex:1 1 220px}
+.srow{display:flex;gap:8px}
+.srow input{flex:1;min-width:0}
+label.l{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+input[type=text],input[type=number],input[type=search],select{width:100%;background:rgba(5,10,22,.6);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:inherit;outline:none}
+input:focus,select:focus,button:focus-visible{border-color:var(--teal);box-shadow:0 0 0 3px rgba(44,197,180,.18);outline:none}
+.ctl{flex:0 0 auto}
+.ctl input[type=number]{width:90px}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{background:transparent;border:0;color:var(--ink2);padding:10px 12px;font:inherit;cursor:pointer}
+.seg button.on{background:rgba(217,178,95,.16);color:var(--gold)}
+.chk{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:14px;padding:10px 0;cursor:pointer}
+.ubtn{background:rgba(217,178,95,.14);border:1px solid rgba(217,178,95,.4);color:var(--gold);border-radius:10px;padding:0 14px;font:inherit;font-weight:700;cursor:pointer}
+.xbtn{background:transparent;border:1px solid var(--line);color:var(--ink2);border-radius:10px;padding:0 12px;font:inherit;cursor:pointer}
+.results{position:absolute;z-index:30;left:0;right:0;top:100%;margin-top:4px;background:#101c35;border:1px solid var(--line);border-radius:12px;max-height:360px;overflow:auto;display:none;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.results div{padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:baseline}
+.results div.act,.results div:hover{background:rgba(44,197,180,.12)}
+.results .t{flex:0 0 52px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--teal)}
+.results b{color:var(--gold);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.results span.n{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{padding:50px 20px;text-align:center;color:var(--ink2)}
+.empty h2{margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:14px}
+.chip{background:var(--glass2);border:1px solid var(--line);color:var(--ink);padding:6px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:13px}
+.chip:hover{border-color:var(--gold)}
+.hdr{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-end;margin-bottom:14px}
+.geoname{font-family:"Playfair Display",serif;font-size:28px;font-weight:700;overflow-wrap:anywhere}
+.geoname small{font-family:"DM Sans";font-size:14px;color:var(--gold);font-weight:500;margin-left:8px;white-space:nowrap}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{display:inline-flex;gap:6px;align-items:center;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--ink2)}
+.badge.w{color:var(--warn);border-color:rgba(224,166,58,.4)}
+.badge.c{color:var(--s3);border-color:rgba(140,123,245,.45)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px;margin-bottom:14px}
+@media(max-width:420px){.kpis{grid-template-columns:1fr 1fr;gap:10px}.kpi .val{font-size:21px!important}.kpi .row{font-size:11.5px!important}}
+.kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.kpi .val{font-size:25px;font-weight:700;margin:5px 0 2px;font-variant-numeric:tabular-nums}
+.kpi .row{display:flex;justify-content:space-between;gap:6px;font-size:12.5px;color:var(--ink2);margin-top:3px;font-variant-numeric:tabular-nums}
+.up{color:var(--good)} .dn{color:var(--bad)} .nt{color:var(--ink2)}
+.grid2{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-bottom:14px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.read .verdict{display:flex;align-items:center;gap:10px;margin:6px 0 10px;flex-wrap:wrap}
+.read .pill{font-weight:700;padding:6px 14px;border-radius:999px;font-size:14px}
+.pill.sel{background:rgba(63,191,127,.15);color:var(--good);border:1px solid rgba(63,191,127,.4)}
+.pill.buy{background:rgba(228,106,106,.13);color:var(--bad);border:1px solid rgba(228,106,106,.4)}
+.pill.bal{background:rgba(224,166,58,.13);color:var(--warn);border:1px solid rgba(224,166,58,.4)}
+.read ul{margin:0;padding-left:0;list-style:none}
+.read li{padding:6px 0;border-top:1px solid var(--line);font-size:13.5px;color:var(--ink2);display:flex;gap:8px}
+.read li .ic{flex:0 0 18px;font-weight:700;text-align:center}
+.rank .r{display:grid;grid-template-columns:minmax(110px,140px) 1fr 40px;gap:10px;align-items:center;font-size:13px;margin:9px 0}
+.rank .bar{height:8px;background:rgba(255,255,255,.07);border-radius:4px;position:relative}
+.rank .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--s2)}
+.rank .r b{text-align:right;font-variant-numeric:tabular-nums}
+.rank .big{font-size:34px;font-weight:700;color:var(--gold);margin:14px 0 4px;font-variant-numeric:tabular-nums}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.charts{grid-template-columns:1fr}}
+.ch .note{font-size:12px;color:var(--muted);margin:2px 0 8px}
+.ch .box{position:relative;height:250px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--ink2);margin:0 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:18px;height:0;border-top:3px solid}
+.sec{margin:22px 0 10px;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.tbl{overflow:auto;max-height:460px;padding:0}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{position:sticky;top:0;background:#0f1a30;color:var(--muted);font-weight:500;text-transform:uppercase;font-size:10.5px;letter-spacing:.06em;z-index:1}
+th.ta{color:var(--teal)}
+td:first-child,th:first-child{text-align:left;position:sticky;left:0;background:#0f1a30}
+th:first-child{z-index:2}
+tr.q td:first-child::after{content:" ⚑";color:var(--warn)}
+.btn{background:rgba(217,178,95,.14);border:1px solid rgba(217,178,95,.4);color:var(--gold);border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;cursor:pointer}
+.notes{font-size:12.5px;color:var(--muted);line-height:1.6}
+.notes p{margin:0 0 8px}
+.notes b{color:var(--ink2)}
+.loading{color:var(--muted);padding:30px;text-align:center}
+.mdh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mdh h2{margin:0}
+.lvl{font-size:11px;font-weight:700;letter-spacing:.1em;padding:4px 10px;border-radius:999px;color:var(--teal);border:1px solid rgba(44,197,180,.45);background:rgba(44,197,180,.1)}
+.mdn{color:var(--ink);font-weight:700}
+.mdnote{font-size:12.5px;color:var(--ink2);margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.mdnote.w{color:var(--warn);border-color:rgba(224,166,58,.35)}
+/* Location map. z-index:0 makes its own stacking context so Leaflet's panes stay under the search dropdowns. */
+.mapc.card{padding:0;overflow:hidden;margin-bottom:14px;position:relative;z-index:0}
+.mapc .mh{display:flex;justify-content:space-between;gap:6px 14px;align-items:baseline;flex-wrap:wrap;padding:12px 16px 10px}
+.mapc .mh h2{margin:0}
+.mapc .mlg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2)}
+.mapc .mlg span{display:inline-flex;align-items:center;gap:6px}
+.mapc .mlg i{display:inline-block;width:16px;height:10px;border-radius:2px;border:2px solid}
+.mapc .mlg i.ctx{border-style:dashed;border-color:var(--ref);background:transparent}
+.mapc .mnote{font-size:12.5px;color:var(--warn);padding:0 16px 10px}
+.mapc .mstat{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);z-index:500;background:rgba(10,19,36,.85);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:13px;color:var(--ink2);pointer-events:none}
+#map{height:320px;background:#0b1428}
+@media(max-width:600px){#map{height:250px}}
+.leaflet-container{font:inherit}
+.leaflet-container .leaflet-control-attribution{background:rgba(10,19,36,.78);color:var(--muted);font-size:10.5px}
+.leaflet-container .leaflet-control-attribution a{color:var(--ink2)}
+.leaflet-bar a,.leaflet-bar a:hover{background:#101c35;color:var(--ink);border-bottom-color:var(--line)}
+.leaflet-bar{border:1px solid var(--line)!important}
+.mapc .mhint{font-size:12px;color:var(--muted);padding:7px 16px 9px;border-top:1px solid var(--line)}
+.mpick .leaflet-popup-content-wrapper{background:#101c35;color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.mpick .leaflet-popup-tip{background:#101c35}
+.mpick .leaflet-popup-content{margin:10px 10px 8px;font:inherit;font-size:13px;min-width:220px}
+.mpick a.leaflet-popup-close-button{color:var(--muted)}
+.mpick .pk-h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 22px 6px 4px}
+.mpick button.pk{display:flex;gap:10px;align-items:baseline;width:100%;text-align:left;background:transparent;border:0;border-radius:8px;color:var(--ink);font:inherit;padding:7px 6px;cursor:pointer}
+.mpick button.pk:hover{background:rgba(44,197,180,.12)}
+.mpick button.pk.on{cursor:default;opacity:.7}
+.mpick .pk-t{flex:0 0 48px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--teal)}
+.mpick .pk-n{flex:1;min-width:0}
+.mpick .pk-n b{color:var(--gold)}
+.mpick .pk-on{font-size:11px;color:var(--gold)}
+.mpick .pk-x{font-size:11.5px;color:var(--muted);margin:6px 4px 0}
+.leaflet-tooltip.mtip{background:#101c35;border:1px solid var(--line);color:var(--ink);box-shadow:none;font:inherit;font-size:12px}
+/* "?" info buttons and their tooltip */
+.tip{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:transparent;color:var(--muted);font:700 11px/1 "DM Sans",system-ui,sans-serif;cursor:help;padding:0;margin-left:8px;vertical-align:middle;flex:0 0 auto;letter-spacing:0;text-transform:none}
+.tip:hover,.tip:focus-visible,.tip.on{color:var(--gold);border-color:var(--gold);box-shadow:none}
+.kpi{position:relative}
+.kpi .tip{position:absolute;top:12px;right:12px;margin:0}
+.kpi .lab{padding-right:24px}
+#tipbox{position:fixed;z-index:100;display:none;width:max-content;max-width:min(330px,calc(100vw - 24px));background:#101c35;border:1px solid rgba(217,178,95,.45);color:var(--ink);font-size:12.5px;line-height:1.5;padding:10px 12px;border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5);pointer-events:none;font-family:"DM Sans",system-ui,sans-serif;font-weight:400;text-transform:none;letter-spacing:0}
+#tipbox b{color:var(--gold)}
+#tipbox .tf{color:var(--muted);margin-top:6px;font-size:11.5px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#13223f;border:1px solid var(--teal);padding:10px 16px;border-radius:10px;font-size:13px;display:none;z-index:50;max-width:calc(100% - 32px)}
+/* Explorer / Screener modes */
+.modeseg button{padding:9px 16px;font-weight:700}
+.scrv{display:none}
+body.scrmode .scrv{display:block}
+body.scrmode #main, body.scrmode .xo{display:none!important}
+.valv{display:none}
+body.valmode .valv{display:block}
+body.valmode #main, body.valmode .xo, body.valmode #scrv{display:none!important}
+.vform{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.vform .ctl.addr{flex:1 1 320px}
+.vform .ctl.zip input{width:110px}
+.vform .ctl.sq input{width:130px}
+.vform .go{background:rgba(217,178,95,.16);border:1px solid rgba(217,178,95,.5);color:var(--gold);border-radius:10px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+.vpriv{font-size:12px;color:var(--muted);margin-top:8px}
+.vres{margin-top:14px}
+.vrange{font-family:"Playfair Display",serif;font-size:38px;font-weight:700;color:var(--gold);margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.vmid{color:var(--ink2);font-size:14px}
+.vanch{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin:14px 0}
+.vanch .kpi .val{font-size:23px}
+.vanch .how{font-size:12px;color:var(--ink2);margin-top:6px;line-height:1.5}
+.vanch .src{font-size:11px;color:var(--warn);margin-top:4px}
+.vwarn{font-size:12.5px;color:var(--warn);padding:8px 10px;border:1px solid rgba(224,166,58,.35);border-radius:10px;margin-top:8px}
+.vcav{font-size:12.5px;color:var(--ink2);line-height:1.6;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.vbtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.vlink{color:var(--teal);text-decoration:none;border-bottom:1px dashed rgba(44,197,180,.5)}
+.vlink:hover{color:var(--ink)}
+.vform .ctl.zip input{width:130px;font-size:17px}
+.vform .ctl.sq input{font-size:17px}
+.sctl{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
+.sctl .ctl input[type=number]{width:120px}
+.sctl select{width:auto;min-width:150px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.presets .pl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:0 0 74px}
+.chip.on{border-color:var(--gold);color:var(--gold);background:rgba(217,178,95,.12)}
+.sstat{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 10px;color:var(--ink2);font-size:13.5px}
+.sstat b{color:var(--ink)}
+.stbl{max-height:none}
+.stbl table{font-size:12.5px}
+.stbl th.s{cursor:pointer;user-select:none}
+.stbl th.s:hover{color:var(--ink)}
+.stbl th.on{color:var(--gold)}
+.stbl th .ar{margin-left:3px}
+.stbl td:first-child,.stbl th:first-child{text-align:left;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.stbl td.rk{color:var(--muted)}
+.stbl tbody tr{cursor:pointer}
+.stbl tbody tr:hover td{background:rgba(44,197,180,.08)}
+.stbl td b.zid{color:var(--gold);font-weight:700;margin-right:6px}
+.stbl td.c{text-align:left}
+.pill.sm{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;margin-left:6px}
+.srcl{font-family:"DM Sans",system-ui,sans-serif;font-size:14px;font-weight:500;color:var(--teal)}
+.rsnone{color:var(--ink2);margin-bottom:14px}
+.rsnone b{color:var(--ink)}
+.stbl td .dv{margin-left:5px;font-size:10px;color:var(--warn);border:1px solid rgba(224,166,58,.45);border-radius:4px;padding:0 3px;cursor:help}
+.stbl td.nors{text-align:left;color:var(--muted);font-style:italic}
+.rbtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:999px;color:var(--teal);border:1px solid rgba(44,197,180,.5);background:rgba(44,197,180,.1);text-decoration:none}
+.rbtn:hover{background:rgba(44,197,180,.2);color:var(--ink)}
+.stbl a.rl{display:inline-block;color:var(--teal);text-decoration:none;font-size:13px;margin-right:7px;padding:0 3px;border-radius:4px;border:1px solid rgba(44,197,180,.4)}
+.stbl a.rl:hover{background:rgba(44,197,180,.2);color:var(--ink)}
+.snote{font-size:12.5px;color:var(--warn);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Zip <span>Market</span> Explorer</h1>
+      <div class="sub" id="cov">realtor.com listing-market data</div>
+    </div>
+    <div class="seg modeseg" id="mode" role="tablist"><button data-v="explorer" class="on">Explorer</button><button data-v="screener">Screener</button><button data-v="value">Ballpark value</button></div>
+  </div>
+
+  <div class="controls card">
+    <div class="search xo">
+      <label class="l" for="q">Search zip, town, county, metro or state</label>
+      <div class="srow">
+        <input type="search" id="q" placeholder="e.g. 30084, tucker, fulton county, atlanta, GA" autocomplete="off" spellcheck="false">
+        <button class="ubtn" id="usbtn" title="United States">US</button>
+      </div>
+      <div class="results" id="res" role="listbox"></div>
+    </div>
+    <div class="ctl">
+      <label class="l" for="n">Trailing avg (months)</label>
+      <input type="number" id="n" min="1" max="24" step="1" value="3" inputmode="numeric">
+    </div>
+    <div class="ctl">
+      <label class="l">Window</label>
+      <div class="seg" id="rng"><button data-v="12">12M</button><button data-v="24">24M</button><button data-v="60">5Y</button><button data-v="0" class="on">All</button></div>
+    </div>
+    <div class="ctl xo">
+      <label class="l" for="bm">Benchmark</label>
+      <select id="bm"><option value="parent">Parent state</option><option value="us">US</option><option value="none">None</option></select>
+    </div>
+    <div class="search cmp xo">
+      <label class="l" for="cq">Compare with (optional)</label>
+      <div class="srow">
+        <input type="search" id="cq" placeholder="second place to overlay" autocomplete="off" spellcheck="false">
+        <button class="xbtn" id="cx" title="Clear comparison" style="display:none">✕</button>
+      </div>
+      <div class="results" id="cres" role="listbox"></div>
+    </div>
+    <div class="ctl xo">
+      <label class="chk"><input type="checkbox" id="raw" checked> Show monthly values</label>
+    </div>
+  </div>
+
+  <div id="main"><div class="card loading">Loading…</div></div>
+  <div id="scrv" class="scrv"></div>
+  <div id="valv" class="valv"></div>
+
+  <div class="card notes" style="margin-top:22px" id="notes"></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const S = {meta:null, shards:{}, geos:{}, cur:null, cmp:null, N:3, win:0, bm:'parent', raw:true, charts:{}, usGeo:null};
+const C = {s1:'#BA8628', s2:'#139A8A', s3:'#8C7BF5', ref:'#8a93a8', grid:'rgba(255,255,255,.07)', tick:'#7f8bab'};
+// Redfin closed sales (rs_*): sale price, $/sq ft, homes sold, pending sales, months of supply,
+// days on market, sale-to-list, share sold above list, share off market in two weeks.
+const RS_KEYS = ['rs_p','rs_f','rs_n','rs_pend','rs_mos','rs_dom','rs_sl','rs_ab','rs_off2'];
+// Zillow: zv = typical home value (ZHVI), zr = typical rent (ZORI, $/month).
+const ZL_KEYS = ['zv','zr'];
+const KEYS = ['p','a','f','s','al','nl','pl','tl','dom','prs','pis','pr','q'].concat(RS_KEYS, ZL_KEYS);
+const TYPE = {us:'US', state:'State', metro:'Metro', county:'County', zip:'Zip'};
+const $ = id => document.getElementById(id);
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const mlab = m => MON[(m%100)-1] + ' ' + String(Math.floor(m/100)).slice(2);
+const mlong = m => MON[(m%100)-1] + ' ' + Math.floor(m/100);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// ---------- data ----------
+function decode(d){
+  const L = S.meta.months.length, sc = S.meta.scale, out = {};
+  for (const k of KEYS){
+    if (d[k] === undefined){ out[k] = new Array(L).fill(null); continue; }
+    const f = k in sc ? 1/sc[k] : 1;
+    if (S.meta.delta){   // each value is the change from the previous non-blank value
+      let prev = 0;
+      out[k] = d[k].split(',').map(v => v === '' ? null : (prev += +v)*f);
+    } else out[k] = d[k].split(',').map(v => v === '' ? null : (+v)*f);
+  }
+  return out;
+}
+const hasRS = d => d.rs_p.some(v => v !== null) || d.rs_n.some(v => v !== null);
+// Zillow-derived series, computed here rather than stored: gross rent yield, price-to-rent,
+// list-to-value (realtor.com list ÷ ZHVI) and sale-to-value (Redfin sale ÷ ZHVI).
+function deriveZL(d){
+  const div = (a, b, f) => a.map((v, i) => isNum(v) && b[i] ? f(v, b[i]) : null);
+  d.zy = div(d.zr, d.zv, (r, v) => r*12/v);
+  d.zp2r = div(d.zv, d.zr, (v, r) => v/(r*12));
+  d.zl2v = div(d.p, d.zv, (l, v) => l/v);
+  d.zs2v = div(d.rs_p, d.zv, (sp, v) => sp/v);
+}
+// Index of Zillow's latest month on our axis (Zillow posts mid-month, so it can trail realtor.com).
+function zli(){ const z = S.meta.zl && S.meta.zl.last ? S.meta.zl.last.zv : null; const i = z ? S.meta.months.indexOf(z) : -1; return i >= 0 ? i : S.meta.months.length-1; }
+async function getJSON(u){ const r = await fetch(u); if (!r.ok) throw new Error(u+' → HTTP '+r.status); return r.json(); }
+function shardPath(type, id){
+  if (type === 'us') return 'd/us.json';
+  if (type === 'state') return 'd/states.json';
+  return 'd/'+type+'/'+id.slice(0,2)+'.json';
+}
+function loadShard(path){
+  if (!S.shards[path]) S.shards[path] = getJSON(path).catch(e => { delete S.shards[path]; throw e; });
+  return S.shards[path];
+}
+async function getGeo(type, id){
+  const key = type+'-'+id;
+  if (S.geos[key]) return S.geos[key];
+  const sh = await loadShard(shardPath(type, id));
+  const rec = sh[id];
+  if (!rec) return null;
+  const g = {type, id, key, n:rec.n, st:rec.st || null, rk:rec.rk || null, hr:rec.hr || null, rsx:rec.rsx || null, rsdiv:rec.rsdiv || null, d:decode(rec.d), tc:{}};
+  g.rs = hasRS(g.d);
+  deriveZL(g.d);
+  g.zv = g.d.zv.some(v => v !== null); g.zr = g.d.zr.some(v => v !== null); g.zl = g.zv || g.zr;
+  S.geos[key] = g;
+  return g;
+}
+const geoKey = g => g.type === 'us' ? 'us' : g.type+'-'+g.id;
+function geoTitle(g){ return g.type === 'us' ? 'United States' : g.n; }
+function geoTag(g){ return g.type === 'us' ? 'National' : TYPE[g.type]+' '+g.id; }
+
+// ---------- math ----------
+// Trailing average: mean of the non-null values in the last N months; shown only when a full
+// N months of history exist and at least half of the window has data.
+function trailing(arr, N){
+  const need = Math.ceil(N/2), out = new Array(arr.length).fill(null);
+  for (let i = N-1; i < arr.length; i++){
+    let s = 0, c = 0;
+    for (let j = i-N+1; j <= i; j++){ const v = arr[j]; if (v !== null && isFinite(v)){ s += v; c++; } }
+    out[i] = c >= need ? s/c : null;
+  }
+  return out;
+}
+function T(g, k){
+  if (!g) return null;
+  const c = g.tc[S.N] || (g.tc[S.N] = {});
+  return c[k] || (c[k] = trailing(g.d[k], S.N));
+}
+function yoy(arr){ return arr.map((v,i) => (i >= 12 && v !== null && arr[i-12]) ? v/arr[i-12]-1 : null); }
+function lastIdx(arr){ for (let i = arr.length-1; i >= 0; i--) if (arr[i] !== null) return i; return -1; }
+const isNum = v => v !== null && v !== undefined && isFinite(v);
+
+// ---------- formatting ----------
+const fmt = {
+  usd: v => !isNum(v) ? '–' : v >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : v >= 1e3 ? '$'+Math.round(v/1e3)+'K' : '$'+Math.round(v),
+  usdFull: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
+  psf: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
+  num: v => !isNum(v) ? '–' : Math.round(v).toLocaleString(),
+  num1: v => !isNum(v) ? '–' : (Math.round(v*10)/10).toLocaleString(),
+  pct: v => !isNum(v) ? '–' : (v*100).toFixed(1)+'%',
+  ratio: v => !isNum(v) ? '–' : v.toFixed(2),
+  chg: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+'%',
+  pts: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+(v*100).toFixed(1)+' pts',
+  mos: v => !isNum(v) ? '–' : v.toFixed(1),
+  mosd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1),
+  rent: v => !isNum(v) ? '–' : '$'+Math.round(v).toLocaleString(),
+  yrs: v => !isNum(v) ? '–' : v.toFixed(1),
+  yrsd: v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)
+};
+// dir: +1 = rising favors sellers / tighter market, -1 = falling favors sellers, 0 = neutral
+function cls(v, dir){ if (!dir || !isNum(v) || Math.abs(v) < 0.0005) return 'nt'; return (v > 0) === (dir > 0) ? 'up' : 'dn'; }
+
+// ---------- benchmark ----------
+function stateGeo(st){ const k = 'state-'+st; return S.geos[k] || null; }
+function parentGeo(g){
+  if (g.type === 'us') return null;
+  if (g.type === 'state') return S.usGeo;
+  return (g.st && stateGeo(g.st)) || S.usGeo;
+}
+function benchGeo(g){
+  if (S.bm === 'none') return null;
+  if (S.bm === 'us') return g.type === 'us' ? null : S.usGeo;
+  return parentGeo(g);
+}
+
+// ---------- search ----------
+function buildSearch(){
+  S.hay = S.meta.idx.map(r => {
+    const [type, id, name, st] = r;
+    return {type, id, name, st, lid:id.toLowerCase(), lname:name.toLowerCase(),
+      h:(id+' '+name+' '+TYPE[type]+(type === 'county' ? ' county parish borough' : '')+(type === 'metro' ? ' metro msa cbsa' : '')+(type === 'us' ? ' united states usa national' : '')+' '+st).toLowerCase()};
+  });
+}
+function search(qRaw){
+  const q = qRaw.trim().toLowerCase().replace(/\s+/g,' ');
+  if (!q || !S.hay) return [];
+  const terms = q.split(/[\s,]+/).filter(Boolean);
+  const ex = [], st = [], ot = [];
+  for (const r of S.hay){
+    if (!terms.every(t => r.h.includes(t))) continue;
+    if (r.lid === q || r.lname === q) ex.push(r);
+    else if (r.lid.startsWith(q) || r.lname.startsWith(q)) st.push(r);
+    else if (ot.length < 80) ot.push(r);
+    if (ex.length + st.length >= 60) break;
+  }
+  return ex.concat(st, ot).slice(0, 40);
+}
+function attachSearch(inp, box, onPick){
+  let hits = [], act = -1;
+  const draw = () => {
+    box.innerHTML = hits.length ? hits.map((h,i) => '<div role="option" data-i="'+i+'" class="'+(i === act ? 'act' : '')+'"><span class="t">'+TYPE[h.type]+'</span><b>'+esc(h.type === 'us' ? 'US' : h.id)+'</b><span class="n">'+esc(h.name)+'</span></div>').join('')
+      : '<div style="cursor:default"><span class="n">No matches</span></div>';
+    box.style.display = 'block';
+  };
+  const run = () => { hits = search(inp.value); act = hits.length ? 0 : -1; if (!inp.value.trim()) { box.style.display = 'none'; return; } draw(); };
+  const pick = i => { const h = hits[i]; if (!h) return; box.style.display = 'none'; inp.blur(); onPick(h.type, h.id); };
+  inp.addEventListener('input', run);
+  inp.addEventListener('focus', () => { if (inp.value.trim() && !inp.dataset.sel) run(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Escape'){ box.style.display = 'none'; return; }
+    if (box.style.display !== 'block') return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      act = Math.max(0, Math.min(hits.length-1, act + (e.key === 'ArrowDown' ? 1 : -1)));
+      [...box.children].forEach((c,i) => c.classList.toggle('act', i === act));
+      box.children[act] && box.children[act].scrollIntoView({block:'nearest'});
+    } else if (e.key === 'Enter'){ e.preventDefault(); if (hits.length) pick(act < 0 ? 0 : act); }
+  });
+  inp.addEventListener('input', () => { delete inp.dataset.sel; });
+  box.addEventListener('mousedown', e => { const t = e.target.closest('[data-i]'); if (t){ e.preventDefault(); pick(+t.dataset.i); } });
+  document.addEventListener('click', e => { if (!box.contains(e.target) && e.target !== inp) box.style.display = 'none'; });
+}
+function setInput(inp, g){ inp.value = g ? (g.type === 'us' ? 'United States' : g.n+' · '+TYPE[g.type]+' '+g.id) : ''; if (g) inp.dataset.sel = '1'; }
+
+// ---------- navigation ----------
+function parseKey(s){
+  if (!s) return null;
+  if (s === 'us') return ['us','us'];
+  const m = s.match(/^(zip|county|metro|state)-([A-Za-z0-9]+)$/);
+  return m ? [m[1], m[1] === 'state' ? m[2].toUpperCase() : m[2]] : null;
+}
+function parseHash(){
+  const h = decodeURIComponent((location.hash || '').slice(1));
+  const [a, b] = h.split('&vs=');
+  return {a:parseKey(a), b:parseKey(b)};
+}
+function writeHash(){
+  if (!S.cur) return;
+  const h = '#'+geoKey(S.cur)+(S.cmp ? '&vs='+geoKey(S.cmp) : '');
+  if (location.hash !== h) { try { history.replaceState(null, '', h); } catch(e){ location.hash = h; } }
+}
+async function select(type, id){
+  $('main').innerHTML = '<div class="card loading">Loading '+esc(TYPE[type]+' '+(type === 'us' ? '' : id))+'…</div>';
+  try {
+    const g = await getGeo(type, id);
+    if (!g){ $('main').innerHTML = '<div class="card empty"><h2>Not found</h2><div>No data for '+esc(TYPE[type]+' '+id)+'.</div></div>'; return; }
+    S.cur = g; setInput($('q'), g); writeHash(); render();
+  } catch(e){ $('main').innerHTML = '<div class="card empty"><h2>Could not load data</h2><div>'+esc(e.message)+'</div></div>'; }
+}
+async function selectCmp(type, id){
+  try {
+    const g = type ? await getGeo(type, id) : null;
+    S.cmp = g && S.cur && g.key === S.cur.key ? null : g;
+    setInput($('cq'), S.cmp); $('cx').style.display = S.cmp ? '' : 'none';
+    writeHash(); if (S.cur) render();
+  } catch(e){ toast('Could not load comparison: '+e.message); }
+}
+
+// ---------- render ----------
+function render(){
+  const g = S.cur, d = g.d, N = S.N, M = S.meta.months, li = M.length-1;
+  const bg = benchGeo(g), pg = bg || parentGeo(g);
+  const lastP = lastIdx(d.p), stale = lastP < li;
+  const qFlags = d.q.filter(v => v === 1).length;
+  const alT = T(g,'al')[li];
+  const thin = isNum(alT) ? alT < 10 : (isNum(d.al[li]) ? d.al[li] < 10 : false);
+
+  const kp = (lab, k, f, dir, pts) => {
+    const v = d[k][li], v0 = d[k][li-12], tv = T(g,k)[li], ty = T(g,k)[li-12];
+    const rawY = pts ? (isNum(v) && isNum(v0) ? v-v0 : null) : (isNum(v) && v0 ? v/v0-1 : null);
+    const taY = pts ? (isNum(tv) && isNum(ty) ? tv-ty : null) : (isNum(tv) && ty ? tv/ty-1 : null);
+    const cf = pts ? fmt.pts : fmt.chg;
+    return '<div class="card kpi">'+tipBtn(k, 'tile')+'<div class="lab">'+lab+'</div><div class="val">'+f(v)+'</div>'+
+      '<div class="row"><span>YoY (month)</span><span class="'+cls(rawY,dir)+'">'+cf(rawY)+'</span></div>'+
+      '<div class="row"><span>'+N+'M trailing avg</span><span>'+f(tv)+'</span></div>'+
+      '<div class="row"><span>'+N+'M avg YoY</span><span class="'+cls(taY,dir)+'">'+cf(taY)+'</span></div></div>';
+  };
+
+  let h = '<div class="hdr"><div><div class="geoname">'+esc(geoTitle(g))+'<small>'+esc(geoTag(g))+'</small></div>'+
+    '<div class="sub">Latest month: '+mlong(M[li])+' · '+N+'-month trailing averages · Benchmark: '+(bg ? esc(geoTitle(bg)) : 'none')+
+    (g.type === 'metro' && g.hr ? ' · #'+g.hr+' of '+S.counts.metro+' metros by households' : '')+'</div></div>'+
+    '<div class="badges">'+
+    (realtorURL(g.type, g.id, g.n, g.st) ? '<a class="rbtn" href="'+esc(realtorURL(g.type, g.id, g.n, g.st))+'" target="_blank" rel="noopener" title="'+esc(realtorTip(g.type, g.n))+'">Homes for sale on realtor.com ↗</a>' : '')+
+    (S.cmp ? '<span class="badge c">Comparing with '+esc(geoTitle(S.cmp))+'</span>' : '')+
+    (stale ? '<span class="badge w">No '+mlong(M[li])+' price data — last: '+(lastP >= 0 ? mlong(M[lastP]) : 'none')+'</span>' : '')+
+    (thin ? '<span class="badge w">Thin market: &lt;10 active listings ('+N+'M avg)</span>' : '')+
+    (qFlags ? '<span class="badge">⚑ '+qFlags+' month'+(qFlags > 1 ? 's' : '')+' flagged by realtor.com</span>' : '')+
+    '</div></div>';
+
+  h += '<div id="mapbox"></div>';
+  h += '<div class="kpis">'+
+    kp('Median list price','p',fmt.usd,1)+
+    kp('Median $ / sq ft','f',fmt.psf,1)+
+    kp('Active listings','al',fmt.num,-1)+
+    kp('New listings','nl',fmt.num,-1)+
+    kp('Median days on market','dom',fmt.num,-1)+
+    kp('Price-reduced share','prs',fmt.pct,-1,true)+
+    kp('Pending ratio','pr',fmt.ratio,1)+
+    kp('Median sq ft','s',fmt.num,0)+
+  '</div>';
+  h += rsSection(g, parentGeo(g));
+  h += zlSection(g, parentGeo(g));
+
+  const read = marketRead(g, pg);
+  h += '<div class="grid2"><div class="card read"><h2>Market read'+tipBtn('read')+'</h2><div class="sub">'+N+'-month trailing averages'+(pg ? ' vs '+esc(geoTitle(pg)) : '')+' and vs a year ago'+
+    (!bg && pg ? ' (benchmark off — market read still uses '+esc(geoTitle(pg))+')' : '')+'</div>'+
+    '<div class="verdict"><span class="pill '+read.cls+'">'+read.label+'</span><span class="sub" style="margin:0">score '+(read.score > 0 ? '+' : '')+read.score+' of ±'+read.max+'</span></div>'+
+    '<ul>'+read.items.map(x => '<li><span class="ic '+(x.s > 0 ? 'up' : x.s < 0 ? 'dn' : 'nt')+'">'+(x.s > 0 ? '▲' : x.s < 0 ? '▼' : '•')+'</span><span>'+x.t+'</span></li>').join('')+'</ul></div>';
+  h += rankPanel(g) + '</div>';
+  h += '<div id="mdp"></div>';
+
+  h += '<div class="sec"><h2>Trends</h2></div><div class="charts">';
+  const defs = [
+    ['c_p','Median listing price','Half of listings are priced above this.'],
+    ['c_f','Median listing price per sq ft','Controls for home size — a cleaner read on price direction.'],
+    ['c_inv','Inventory: active, new, pending','Active = for sale; new = added this month; pending = under contract.'],
+    ['c_dom','Median days on market','Lower = homes selling faster.'],
+    ['c_red','Price reductions vs increases','Share of active listings with a price cut / raise that month.'],
+    ['c_pr','Pending ratio','Pending ÷ active listings. Higher = demand absorbing supply.'],
+    ['c_yoy','Year-over-year change of the '+N+'M trailing average','Momentum: each line vs the same window a year earlier. Zero line = flat.'],
+    ['c_sq','Median listing size (sq ft)','Shifts here can move the median price without any real price change.']
+  ].concat(g.rs ? [
+    ['c_ls','List vs sale price','realtor.com median list price vs Redfin median sale price, '+N+'M trailing averages.'+(g.type === 'zip' ? ' Redfin zip figures are 3-mo rolling.' : '')],
+    ['c_stl','Sale-to-list and % sold above list','Average sale price ÷ final list price (left axis) and the share of homes that sold above list (right axis). Redfin.'],
+    ['c_sold','Homes sold vs pending sales','Closed sales and new pending contracts each month, from Redfin.'],
+    ['c_mos','Months of supply','Months it would take to sell current inventory at the current sales pace (Redfin). Green under 4 = seller\'s market, amber 4–6 = balanced, red over 6 = buyer\'s market.']
+  ] : []).concat(g.zl ? (g.zv ? [
+    ['c_vls','Value vs list vs sale','Zillow typical home value (ZHVI) against realtor.com median list price'+(g.rs ? ' and Redfin median sale price' : '')+', '+N+'M trailing averages.']
+  ] : []).concat(g.zr ? [
+    ['c_zr','Typical rent (Zillow ZORI)','Typical asking rent per month, with its year-over-year change underneath.']
+  ] : [], g.zr && g.zv ? [
+    ['c_zy','Gross rent yield','Annual rent ÷ home value (ZORI × 12 ÷ ZHVI), vs the benchmark.']
+  ] : []) : []).concat([
+    ['c_sp','Seasonality: median listing price','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).'],
+    ['c_sa','Seasonality: active listings','Each year is its own line, Jan → Dec (monthly values; ignores the window setting).']
+  ]);
+  const SINGLE = ['c_p','c_f','c_dom','c_pr','c_sq'], RSCH = ['c_ls','c_stl','c_sold'];
+  defs.forEach(([id,t,n]) => { h += '<div class="card ch"><h3>'+t+tipBtn(id, SINGLE.includes(id) || id === 'c_mos' || id === 'c_zy' ? 'chart' : RSCH.includes(id) ? 'rschart' : null)+'</h3><div class="note">'+n+'</div><div class="legend" id="lg_'+id+'"></div>'+
+    (id === 'c_zr' ? '<div class="box" style="height:170px"><canvas id="c_zr"></canvas></div><div class="legend" id="lg_c_zry" style="margin-top:8px"></div><div class="box" style="height:110px"><canvas id="c_zry"></canvas></div>'
+                   : '<div class="box"><canvas id="'+id+'"></canvas></div>')+'</div>'; });
+  h += '</div>';
+
+  h += '<div class="sec"><h2>Monthly data'+tipBtn('monthly')+'</h2><button class="btn" id="copy">Copy table as CSV</button></div><div class="card tbl" id="tbl"></div>';
+  $('main').innerHTML = h;
+  drawCharts(g, bg);
+  drawTable(g);
+  $('copy').onclick = () => copyCSV(g);
+  renderMap(g);
+  renderDistress(g);
+}
+
+// ---------- "?" definitions ----------
+// {N} is replaced with the current trailing-average window when the tooltip opens.
+const TIPS = {
+  // listing tiles (realtor.com)
+  p:'<b>Median list price</b> — the middle asking price of homes for sale this month: half are listed above it, half below. It\'s what sellers are asking, not what homes sold for. Rising is green.',
+  f:'<b>Median list price per sq ft</b> — asking price divided by home size. It isn\'t thrown off by a month with bigger or smaller homes, so it\'s a cleaner read on price direction. Rising is green.',
+  al:'<b>Active listings</b> — homes for sale during the month, not counting those already under contract. More inventory means more choice for buyers, so rising is red.',
+  nl:'<b>New listings</b> — homes that came on the market this month. More new supply tends to soften a market, so rising is red.',
+  dom:'<b>Median days on market</b> — how long the typical listing has been for sale. Fewer days means homes are selling faster, so falling is green.',
+  prs:'<b>Price-reduced share</b> — the share of active listings that cut their asking price this month. A rising share means sellers are chasing buyers, so rising is red. Changes are shown in percentage points.',
+  pr:'<b>Pending ratio</b> — homes that went under contract ÷ active listings. Higher means demand is absorbing supply faster, so rising is green.',
+  s:'<b>Median listing size</b> — the typical size of homes for sale. Neither good nor bad, but a shift here can move the median price without any real change in values.',
+  // closed-sales tiles (Redfin)
+  rs_p:'<b>Median sale price</b> — the middle recorded closing price of homes that sold (Redfin). Unlike list price, this is what buyers actually paid. Rising is green.',
+  rs_n:'<b>Homes sold</b> — the number of closed sales (Redfin). More sales means stronger demand, so rising is green.',
+  rs_mos:'<b>Months of supply</b> — how many months it would take to sell every home on the market at the current pace of sales. Under 4 = seller\'s market, 4–6 = balanced, over 6 = buyer\'s market. Falling is green.',
+  rs_sl:'<b>Sale-to-list</b> — average sale price ÷ final list price. 100% means homes sell at asking on average; above 100% means buyers are bidding over asking. Changes are in percentage points.',
+  rs_ab:'<b>% sold above list</b> — the share of homes that sold for more than their final list price. A high share means buyers are competing.',
+  rs_dom:'<b>Median days to sale</b> — Redfin\'s typical number of days from listing to going under contract, for homes that sold. Fewer days means a faster market, so falling is green.',
+  // Zillow tiles
+  zv:'<b>Typical home value (ZHVI)</b> — Zillow\'s estimate of the value of a typical home here (the middle third of single-family homes and condos), whether or not it\'s for sale. Zillow smooths and seasonally adjusts it. Rising is green.',
+  zr:'<b>Typical rent (ZORI)</b> — Zillow\'s observed typical asking rent per month for homes and apartments listed for rent, smoothed. Rising rents mean stronger rental demand, so rising is green.',
+  zy:'<b>Gross rent yield</b> — a year\'s typical rent ÷ the typical home value (ZORI × 12 ÷ ZHVI). It\'s a rough guide to rental return before taxes, insurance, upkeep and vacancy. Changes are in percentage points.',
+  zp2r:'<b>Price-to-rent</b> — the typical home value ÷ a year\'s typical rent: how many years of rent it takes to equal the price. Higher favours renting; lower favours buying. Changes are in years.',
+  zl2v:'<b>List-to-value</b> — realtor.com\'s median list price ÷ Zillow\'s typical home value. Over 100% means homes on the market are priced above the typical home\'s value (often because listings skew newer or bigger). Changes are in points.',
+  // mortgage distress tiles
+  md90:'<b>90+ days delinquent</b> — the share of mortgages at least 90 days behind on payments (seriously delinquent). It\'s the strongest early warning of foreclosures and forced sales. Also shown: the 30–89 day rate.',
+  mdchg:'<b>Change vs 12 months ago</b> — how much the 90+ day delinquency rate has moved in a year, in percentage points. Rising (red) means more households are falling behind.',
+  mdspr:'<b>Spread vs comparison</b> — this area\'s 90+ day rate minus the state\'s (or the US\'s). Positive (red) means more distress than the comparison.',
+  md30:'<b>30–89 days delinquent</b> — early-stage delinquency. Many borrowers catch up, but a rise here often comes before a rise in the 90+ rate.',
+  // panels
+  read:'<b>Market read</b> — a simple scorecard. Six listing signals, plus two Redfin closed-sales signals when they\'re available, each score +1 (favors sellers), 0 or −1 (favors buyers), using {N}-month trailing averages compared with the parent state and with a year ago. A total of +2 or more = seller-leaning, −2 or less = buyer-leaning, otherwise balanced. Each signal is listed with its numbers so you can check the call.',
+  rank:'<b>Where it ranks</b> — this place\'s percentile among every zip (or county) in its state for the latest month. 100 = the highest value in the state, 50 = the middle. High isn\'t automatically good: a high days-on-market rank means homes sit longer.',
+  metrosize:'<b>Metro size</b> — realtor.com\'s rank of this metro by number of households (1 = the most households in the US).',
+  map:'<b>Location</b> — the gold outline is the selected area (US Census boundaries). Dashed = its county or state, for context; violet = the place you\'re comparing with. Zoom in to see zip outlines, and click any spot to open its zip, county, metro or state.',
+  distress:'<b>Mortgage Distress</b> — the share of mortgages behind on payments, from the CFPB\'s National Mortgage Database. It\'s county-level: a zip uses the county that holds most of its land. The data runs several months behind realtor.com.',
+  zillow:'<b>Values &amp; rents</b> — Zillow Research\'s typical home value (ZHVI) and typical rent (ZORI), plus measures derived from them. Unlike listings and sales, ZHVI covers all homes, not just those on the market that month. Zillow runs about a month behind and smooths its figures, so it is slow to show turning points.',
+  ballpark:'<b>Ballpark value</b> — a rough range for one home, built from area averages: recent sale prices per sq ft (Redfin), current asking prices per sq ft adjusted by what homes sell for vs asking (realtor.com + Redfin), and Zillow\'s typical home value scaled to this home\'s size. It knows only the size and the zip — not condition, lot, view, beds and baths, or the exact street — so it is a sanity check, not an appraisal.',
+  closed:'<b>Closed sales</b> — recorded sales from Redfin, shown alongside realtor.com\'s listings. Listings show what sellers are asking; closed sales show what buyers actually paid and how fast homes sold. Redfin\'s zip figures are 3-month rolling.',
+  monthly:'<b>Monthly data</b> — every month\'s realtor.com values, newest first, followed by your {N}-month trailing averages (teal headers). ⚑ marks months realtor.com flagged for data quality.',
+  // charts
+  c_p:'<b>Median list price</b> over time — the middle asking price of homes for sale each month.',
+  c_f:'<b>Median list price per sq ft</b> over time — asking price adjusted for home size, the cleaner read on price direction.',
+  c_inv:'<b>Inventory</b> — active (for sale), new (listed that month) and pending (went under contract) listings. When new and active listings rise faster than pending ones, inventory is building, which is a softening sign.',
+  c_dom:'<b>Median days on market</b> over time — how long the typical listing sits. Rising means the market is slowing.',
+  c_red:'<b>Price cuts vs price increases</b> — the share of active listings with a price cut, and with a price increase, each month. Cuts rising means sellers are adjusting to weaker demand. Gray dashed = the benchmark\'s price-cut share.',
+  c_pr:'<b>Pending ratio</b> over time — homes going under contract ÷ active listings. Higher = demand absorbing supply.',
+  c_yoy:'<b>Momentum</b> — each line is the {N}-month trailing average compared with the same window a year earlier. Above zero = higher than a year ago. Price lines sliding toward zero often show a market cooling before prices actually fall.',
+  c_sq:'<b>Median listing size</b> over time — the typical size of homes for sale. A shift here can move the median price even when values haven\'t changed.',
+  c_ls:'<b>Asking vs paid</b> — realtor.com\'s median list price against Redfin\'s median sale price. A widening gap (list above sale) means sellers are asking more than buyers pay. They come from different sources and slightly different sets of homes, so a steady gap is normal; watch the trend.',
+  c_stl:'<b>Sale-to-list</b> (left axis) — average sale price ÷ final list price; above 100% means buyers are paying over asking. <b>% sold above list</b> (right axis) — the share of homes that sold over list. Both rise in competitive markets.',
+  c_sold:'<b>Homes sold vs pending sales</b> — closed sales and new contracts each month (Redfin). Pending sales lead closings by about one to two months, so pendings turning down usually means fewer sales ahead.',
+  c_mos:'<b>Months of supply</b> — inventory ÷ the monthly pace of sales. Shaded bands: green under 4 = seller\'s market, amber 4–6 = balanced, red over 6 = buyer\'s market.',
+  c_vls:'<b>Value vs list vs sale</b> — Zillow\'s typical home value next to realtor.com\'s median asking price and Redfin\'s median sale price. The three measure different things (all homes, homes for sale, homes that sold), so watch how the gaps change rather than the levels.',
+  c_zr:'<b>Typical rent</b> — Zillow\'s typical asking rent per month (top), with its year-over-year change (bottom). Above zero on the bottom chart = rents higher than a year ago.',
+  c_zy:'<b>Gross rent yield</b> over time — a year\'s rent ÷ home value. When values rise faster than rents, the yield falls.',
+  c_sp:'<b>Seasonality of list prices</b> — each year is its own line from January to December, so you can see the normal spring and summer peak and compare years at the same point in the season.',
+  c_sa:'<b>Seasonality of inventory</b> — each year\'s active listings by month. Compare this year\'s line with past years to see whether inventory is unusually high or low for the season.'
+};
+const TIP_FOOT = {
+  tile:'Rows: this month vs the same month last year · the {N}-month trailing average · that average vs the same window a year earlier.',
+  rs:'Rows: this month vs the same month last year · the {N}-month trailing average · that average vs a year earlier · the parent state\'s {N}-month average (the US for a state), for comparison.',
+  chart:'Dots / thin line = each month · teal = your {N}-month trailing average · dashed gray = benchmark (state or US) · violet = the place you\'re comparing with.',
+  rschart:'Dotted lines = each month · solid = your {N}-month trailing average.',
+  zl:'Rows: Zillow\'s latest month vs the same month last year · the {N}-month trailing average · that average vs a year earlier · the benchmark\'s {N}-month average (state, or the US where the state has no figure).'
+};
+const tipBtn = (key, kind) => TIPS[key] ? '<button type="button" class="tip" data-tip="'+key+'"'+(kind ? ' data-kind="'+kind+'"' : '')+' aria-label="What does this show?">?</button>' : '';
+const tipText = el => {
+  const fill = t => t.replace(/\{N\}/g, S.N);
+  const k = el.dataset.kind;
+  return fill(TIPS[el.dataset.tip] || '')+(k && TIP_FOOT[k] ? '<div class="tf">'+fill(TIP_FOOT[k])+'</div>' : '');
+};
+// Hover (mouse), focus (keyboard) or tap (phone) to open; tap again, tap elsewhere, scroll or Esc to close.
+(function(){
+  const box = document.createElement('div');
+  box.id = 'tipbox'; box.setAttribute('role', 'tooltip');
+  document.body.appendChild(box);
+  let pinned = null;
+  const place = el => {
+    const r = el.getBoundingClientRect(), vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    const w = box.offsetWidth, h = box.offsetHeight;
+    box.style.left = Math.max(12, Math.min(r.left + r.width/2 - w/2, vw - w - 12))+'px';
+    box.style.top = (r.bottom + 8 + h > vh - 8 && r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8)+'px';
+  };
+  const show = el => { box.innerHTML = tipText(el); box.style.display = 'block'; place(el); };
+  const hide = () => { box.style.display = 'none'; if (pinned) pinned.classList.remove('on'); pinned = null; };
+  document.addEventListener('mouseover', e => { const t = e.target.closest && e.target.closest('.tip'); if (t && !pinned) show(t); });
+  document.addEventListener('mouseout', e => { const t = e.target.closest && e.target.closest('.tip'); if (t && !pinned) hide(); });
+  document.addEventListener('focusin', e => { if (e.target.classList && e.target.classList.contains('tip') && !pinned) show(e.target); });
+  document.addEventListener('focusout', e => { if (e.target.classList && e.target.classList.contains('tip') && !pinned) hide(); });
+  document.addEventListener('click', e => {
+    const t = e.target.closest && e.target.closest('.tip');
+    if (t){ e.preventDefault(); e.stopPropagation();
+      if (pinned === t){ hide(); return; }
+      if (pinned) pinned.classList.remove('on');
+      show(t); pinned = t; t.classList.add('on'); return; }
+    if (pinned) hide();
+  }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  window.addEventListener('scroll', () => { if (box.style.display === 'block') hide(); }, {passive:true});
+  window.addEventListener('resize', hide);
+})();
+
+// ---------- closed sales (Redfin) ----------
+function rsReason(g){
+  if (g.rsx === 'div') return 'Redfin reports this metro only by its metro divisions (groups of counties), so there\'s no closed-sales figure for the metro as a whole. Open one of its counties or zips to see closed sales.';
+  if (g.id === 'LA' || g.st === 'LA') return 'Redfin publishes no closed-sales data for Louisiana (it is a non-disclosure state, and Redfin\'s Louisiana series are blank).';
+  if (g.type === 'county' && g.id.startsWith('09')) return 'Connecticut replaced its counties with planning regions in 2022; Redfin still reports the old counties, so they can\'t be matched.';
+  return 'Redfin has no closed-sales data for this place — usually a small or rural area, or one Redfin doesn\'t list.';
+}
+function rsSection(g, pg){
+  const head = '<div class="sec"><h2>Closed sales'+(g.rs && g.rsdiv ? ': '+esc(g.rsdiv) : '')+' <span class="srcl">(Redfin)</span>'+tipBtn('closed')+'</h2></div>'+
+    (g.rs && g.rsdiv ? '<div class="mdnote" style="margin:-4px 0 10px">Redfin reports this metro by its metro divisions, so these closed-sales figures cover the <b>'+esc(g.rsdiv)+'</b> only — the division containing '+esc(g.n.split(/[-,]/)[0])+' — not the whole metro. Listing figures above are for the whole metro.</div>' : '');
+  if (!g.rs) return head+'<div class="card rsnone"><b>No closed-sales data</b><div class="sub">'+esc(rsReason(g))+'</div></div>';
+  const d = g.d, N = S.N, M = S.meta.months, li = M.length-1;
+  const bl = pg ? (pg.type === 'us' ? 'US' : pg.id)+' '+N+'M avg' : null;
+  const tile = (lab, k, f, dir, pts) => {
+    const v = d[k][li], v0 = d[k][li-12], tv = T(g,k)[li], ty = T(g,k)[li-12];
+    const ch = (a, b) => pts ? (isNum(a) && isNum(b) ? a-b : null) : (isNum(a) && b ? a/b-1 : null);
+    const cf = pts ? fmt.pts : fmt.chg, rawY = ch(v, v0), taY = ch(tv, ty);
+    const bv = pg && pg.rs ? T(pg,k)[li] : null;
+    return '<div class="card kpi">'+tipBtn(k, 'rs')+'<div class="lab">'+lab+'</div><div class="val">'+f(v)+'</div>'+
+      '<div class="row"><span>YoY (month)</span><span class="'+cls(rawY,dir)+'">'+cf(rawY)+'</span></div>'+
+      '<div class="row"><span>'+N+'M trailing avg</span><span>'+f(tv)+'</span></div>'+
+      '<div class="row"><span>'+N+'M avg YoY</span><span class="'+cls(taY,dir)+'">'+cf(taY)+'</span></div>'+
+      (bl ? '<div class="row"><span>'+esc(bl)+'</span><span>'+f(bv)+'</span></div>' : '')+'</div>';
+  };
+  // Redfin sometimes leaves single figures blank for the latest month (e.g. Atlanta metro, Oct 2026).
+  const gaps = [['rs_p','sale price'],['rs_n','homes sold'],['rs_mos','months of supply'],['rs_sl','sale-to-list'],['rs_ab','% above list'],['rs_dom','days to sale']]
+    .filter(([k]) => d[k][li] === null && lastIdx(d[k]) >= 0).map(([, l]) => l);
+  return head+'<div class="sub" style="margin:-4px 0 10px">Recorded sales, not asking prices. Latest: '+mlong(M[li])+
+    (g.type === 'zip' ? ' · <b>Zip figures are 3-mo rolling</b>: each month covers that month and the two before it' : '')+
+    (gaps.length ? ' · <span class="dn">Redfin has no '+mlong(M[li])+' value for '+gaps.join(', ')+' — trailing averages use the months available</span>' : '')+'</div>'+
+    '<div class="kpis">'+
+    tile('Median sale price','rs_p',fmt.usd,1)+
+    tile('Homes sold','rs_n',fmt.num,1)+
+    tile('Months of supply','rs_mos',fmt.mos,-1)+
+    tile('Sale-to-list','rs_sl',fmt.pct,1,true)+
+    tile('% sold above list','rs_ab',fmt.pct,1,true)+
+    tile('Median days to sale','rs_dom',fmt.num,-1)+
+  '</div>';
+}
+// ---------- values & rents (Zillow) ----------
+function zlReason(g){
+  if (g.type === 'metro') return 'Zillow\'s metro home-value file has no row for this metro (Dayton, OH and Poughkeepsie, NY are missing from it), or this is a newer micro area Zillow doesn\'t list.';
+  if (g.type === 'county' && g.id.startsWith('09')) return 'Connecticut replaced its counties with planning regions in 2022; Zillow still reports the old counties, so they can\'t be matched.';
+  return 'Zillow has no home-value estimate for this place — usually a small or rural area, or a PO-box zip.';
+}
+function zlSection(g, pg){
+  const head = '<div class="sec"><h2>Values &amp; rents <span class="srcl">(Zillow)</span>'+tipBtn('zillow')+'</h2></div>';
+  if (!g.zl) return head+'<div class="card rsnone"><b>No Zillow data</b><div class="sub">'+esc(zlReason(g))+'</div></div>';
+  const d = g.d, N = S.N, M = S.meta.months, i = zli();
+  const benchFor = k => { if (pg && T(pg,k)[i] !== null) return pg; if (S.usGeo && g.type !== 'us' && T(S.usGeo,k)[i] !== null) return S.usGeo; return null; };
+  const noRent = g.type === 'state' ? 'Zillow publishes no state-level rents' : 'Zillow covers fewer zips';
+  // pts: change in points (×100); dif: plain difference with formatter
+  const tile = (lab, k, f, dir, mode, dfmt) => {
+    const none = (msg, why) => '<div class="card kpi">'+tipBtn(k, 'zl')+'<div class="lab">'+lab+'</div><div class="val" style="font-size:16px;color:var(--muted)">'+msg+'</div><div class="row"><span>'+why+'</span></div></div>';
+    if ((k === 'zr' || k === 'zy' || k === 'zp2r') && !g.zr) return none('No rent data', noRent);
+    if ((k === 'zv' || k === 'zy' || k === 'zp2r' || k === 'zl2v') && !g.zv) return none('No home-value data', 'Missing from Zillow\'s home-value file');
+    const v = d[k][i], v0 = d[k][i-12], tv = T(g,k)[i], ty = T(g,k)[i-12];
+    const ch = (a, b) => mode === 'pts' || mode === 'dif' ? (isNum(a) && isNum(b) ? a-b : null) : (isNum(a) && b ? a/b-1 : null);
+    const cf = mode === 'pts' ? fmt.pts : mode === 'dif' ? dfmt : fmt.chg, rawY = ch(v, v0), taY = ch(tv, ty);
+    const bg = benchFor(k), bv = bg ? T(bg,k)[i] : null;
+    return '<div class="card kpi">'+tipBtn(k, 'zl')+'<div class="lab">'+lab+'</div><div class="val">'+f(v)+'</div>'+
+      '<div class="row"><span>YoY (month)</span><span class="'+cls(rawY,dir)+'">'+cf(rawY)+'</span></div>'+
+      '<div class="row"><span>'+N+'M trailing avg</span><span>'+f(tv)+'</span></div>'+
+      '<div class="row"><span>'+N+'M avg YoY</span><span class="'+cls(taY,dir)+'">'+cf(taY)+'</span></div>'+
+      (bg ? '<div class="row"><span>'+esc((bg.type === 'us' ? 'US' : bg.id)+' '+N+'M avg')+'</span><span>'+f(bv)+'</span></div>' : '')+'</div>';
+  };
+  return head+'<div class="sub" style="margin:-4px 0 10px">Zillow as of <b>'+mlong(M[i])+'</b>'+(i < M.length-1 ? ' (Zillow posts mid-month, so it runs a month behind the listing data)' : '')+'. '+
+    'ZHVI and ZORI are already smoothed by Zillow; the trailing average adds further smoothing. Zillow\'s values lag turning points vs listing data.</div>'+
+    '<div class="kpis">'+
+    tile('Typical home value','zv',fmt.usd,1)+
+    tile('Typical rent / month','zr',fmt.rent,1)+
+    tile('Gross rent yield','zy',v => !isNum(v) ? '–' : (v*100).toFixed(2)+'%',0,'pts')+
+    tile('Price-to-rent (years)','zp2r',fmt.yrs,0,'dif',fmt.yrsd)+
+    tile('List-to-value','zl2v',fmt.pct,0,'pts')+
+  '</div>';
+}
+function drawZLCharts(g, bg){
+  const d = g.d, N = S.N, raw = S.raw;
+  if (g.zv){ const ds = [], lg = [];
+    [['zv','Home value (Zillow)',C.s2], ['p','List price (realtor.com)',C.s1]].concat(g.rs ? [['rs_p','Sale price (Redfin'+(g.rsdiv ? ', '+g.rsdiv : '')+')',C.s3]] : [])
+      .forEach(([k, l, c]) => { ds.push(lineDS(l+' ('+N+'M avg)', T(g,k), c)); lg.push([c, l]); });
+    mk('c_vls', ds, fmt.usd, false, lg);
+  }
+  if (!g.zr) return;
+  { const ds = [], lg = [];
+    if (raw){ ds.push(rawDS('Rent', d.zr, C.s1)); lg.push([C.s1, 'Monthly']); }
+    ds.push(lineDS('Rent ('+N+'M avg)', T(g,'zr'), C.s2)); lg.push([C.s2, N+'-month trailing avg']);
+    const rb = bg && T(bg,'zr').some(v => v !== null) ? bg : (S.usGeo && g.type !== 'us' ? S.usGeo : null);
+    if (rb){ ds.push(refDS(geoTitle(rb)+' ('+N+'M avg)', T(rb,'zr'))); lg.push([C.ref, geoTitle(rb)+' ('+N+'M avg)', 1]); }
+    mk('c_zr', ds, fmt.rent, false, lg);
+    mk('c_zry', [lineDS('Rent YoY', yoy(T(g,'zr')), C.s3, 2.25)], v => (v >= 0 ? '+' : '')+(v*100).toFixed(1)+'%', false,
+       [[C.s3, 'Year-over-year change of the '+N+'M avg rent']], o => {
+         o.scales.y.grid.color = c => c.tick.value === 0 ? 'rgba(255,255,255,.45)' : C.grid;
+         o.scales.y.ticks.maxTicksLimit = 4;
+         o.plugins.tooltip.callbacks.label = c => ' Rent YoY: '+(c.parsed.y === null ? '–' : (c.parsed.y >= 0 ? '+' : '')+(c.parsed.y*100).toFixed(1)+'%');
+       });
+  }
+  if (g.zv){ const ds = [], lg = [];
+    ds.push(lineDS('Gross yield ('+N+'M avg)', T(g,'zy'), C.s2)); lg.push([C.s2, 'Gross rent yield ('+N+'M avg)']);
+    const yb = bg && T(bg,'zy').some(v => v !== null) ? bg : (S.usGeo && g.type !== 'us' ? S.usGeo : null);
+    if (yb){ ds.push(refDS(geoTitle(yb)+' ('+N+'M avg)', T(yb,'zy'))); lg.push([C.ref, geoTitle(yb)+' ('+N+'M avg)', 1]); }
+    mk('c_zy', ds, v => (v*100).toFixed(1)+'%', false, lg);
+  }
+}
+
+// Shaded months-of-supply bands: under 4 seller's, 4–6 balanced, over 6 buyer's.
+const mosBands = {id:'mosBands', beforeDatasetsDraw(ch){
+  const {ctx, chartArea:a, scales:{y}} = ch;
+  const band = (lo, hi, col) => {
+    const top = y.getPixelForValue(Math.min(hi, y.max)), bot = y.getPixelForValue(Math.max(lo, y.min));
+    if (bot <= top) return;
+    ctx.save(); ctx.fillStyle = col; ctx.fillRect(a.left, top, a.right-a.left, bot-top); ctx.restore();
+  };
+  band(-1, 4, 'rgba(63,191,127,.10)'); band(4, 6, 'rgba(224,166,58,.09)'); band(6, 1e9, 'rgba(228,106,106,.09)');
+}};
+function drawRSCharts(g, bg){
+  const d = g.d, N = S.N, raw = S.raw;
+  const bl = bg && bg.rs ? geoTitle(bg)+' ('+N+'M avg)' : null;
+  const pair = (id, defs, f, min0, extra) => {
+    const ds = [], lg = [];
+    defs.forEach(([k, l, c, axis]) => {
+      if (raw) ds.push(Object.assign(rawDS(l, d[k], c), {pointRadius:0, borderWidth:1, borderDash:[2,3]}, axis ? {yAxisID:axis} : {}));
+      ds.push(Object.assign(lineDS(l+' ('+N+'M avg)', T(g,k), c), axis ? {yAxisID:axis} : {})); lg.push([c, l+' ('+N+'M avg)']);
+    });
+    if (raw) lg.push([C.tick, 'dotted = monthly', 1]);
+    mk(id, ds, f, min0, lg, extra);
+  };
+  pair('c_ls', [['p','List price (realtor.com)',C.s1], ['rs_p','Sale price (Redfin'+(g.rsdiv ? ', '+g.rsdiv : '')+')',C.s2]], fmt.usd, false);
+  pair('c_stl', [['rs_sl','Sale-to-list',C.s2], ['rs_ab','% sold above list',C.s3,'y1']], v => (v*100).toFixed(1)+'%', false, o => {
+    o.scales.y.grid.color = c => Math.abs(c.tick.value-1) < 1e-9 ? 'rgba(255,255,255,.45)' : C.grid;
+    o.scales.y1 = {position:'right', beginAtZero:true, grid:{display:false}, border:{display:false}, ticks:{color:C.tick, callback:v => Math.round(v*100)+'%', maxTicksLimit:6}};
+  });
+  pair('c_sold', [['rs_n','Homes sold',C.s2], ['rs_pend','Pending sales',C.s3]], fmt.num, true);
+  { const ds = [], lg = [];
+    if (raw){ ds.push(rawDS('Months of supply', d.rs_mos, C.s1)); lg.push([C.s1, 'Monthly']); }
+    ds.push(lineDS('Months of supply ('+N+'M avg)', T(g,'rs_mos'), C.s2)); lg.push([C.s2, N+'-month trailing avg']);
+    if (bl){ ds.push(refDS(bl, T(bg,'rs_mos'))); lg.push([C.ref, bl, 1]); }
+    mk('c_mos', ds, fmt.mos, true, lg, o => { o._plugins = [mosBands]; });
+  }
+}
+
+// ---------- location map ----------
+// Outlines come from the Census TIGERweb service at view time (GeoJSON, simplified server-side),
+// so no boundary files live in the repo. Basemap tiles: Esri dark gray canvas.
+const TIGER = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_Current/MapServer/';
+const US48 = [[24.4,-125.0],[49.5,-66.9]];
+const bndP = {};
+function bndQueries(type, id){
+  if (!/^[0-9A-Za-z]+$/.test(id)) return [];
+  const eq = "GEOID='"+id+"'";
+  if (type === 'zip') return [[2, eq, 0.0002]];          // 2020 ZCTAs
+  if (type === 'county') return [[82, eq, 0.0005]];
+  if (type === 'metro') return [[93, eq, 0.002], [91, eq, 0.002]];   // metropolitan, then micropolitan
+  if (type === 'state') return [[80, "STUSAB='"+id+"'", 0.005]];
+  return [];
+}
+async function fetchBoundary(type, id){
+  for (const [layer, where, simp] of bndQueries(type, id)){
+    const u = TIGER+layer+'/query?'+new URLSearchParams({where, outFields:'GEOID', outSR:'4326', maxAllowableOffset:simp, geometryPrecision:'5', f:'geojson'});
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(u, {signal:ctl.signal});
+      if (!r.ok) throw new Error('Census map service: HTTP '+r.status);
+      const j = await r.json();
+      if (j.error) throw new Error('Census map service: '+(j.error.message || 'error'));
+      if (j.features && j.features.length) return j;
+    } catch(e){ throw e.name === 'AbortError' ? new Error('the Census map service timed out') : e; }
+    finally { clearTimeout(t); }
+  }
+  return null;   // no outline for this geography (e.g. a PO-box zip)
+}
+function getBoundary(type, id){
+  const k = type+'-'+id;
+  return bndP[k] || (bndP[k] = fetchBoundary(type, id).catch(e => { delete bndP[k]; throw e; }));
+}
+// What to draw: the main outline, a dashed context outline around it, and an optional fallback.
+async function mapPlan(g){
+  const plan = {main:null, ctx:null, note:null, ctxLabel:null};
+  if (g.type === 'us') return plan;
+  const stName = st => { const s = stateGeo(st); return s ? s.n : st; };
+  plan.main = await getBoundary(g.type, g.id);
+  if (g.type === 'zip'){
+    let fips = null;
+    try { const z = await loadZ2C(); fips = z[g.id] ? z[g.id][0] : null; } catch(e){}
+    if (fips){ plan.ctx = await getBoundary('county', fips).catch(() => null); plan.ctxLabel = countyLabel(fips, S.cfpb && S.cfpb.counties[fips]); }
+    else if (g.st){ plan.ctx = await getBoundary('state', g.st).catch(() => null); plan.ctxLabel = stName(g.st); }
+    if (!plan.main) plan.note = 'Zip '+g.id+' has no mapped area in the Census zip-area (ZCTA) file — usually a PO-box or single-building zip. Showing '+(plan.ctxLabel || 'its state')+' instead.';
+  } else if ((g.type === 'county' || g.type === 'metro') && g.st){
+    plan.ctx = await getBoundary('state', g.st).catch(() => null); plan.ctxLabel = stName(g.st);
+    if (!plan.main) plan.note = 'Census has no outline for '+TYPE[g.type].toLowerCase()+' '+g.id+'. Showing '+plan.ctxLabel+' instead.';
+  } else if (!plan.main) plan.note = 'Census has no outline for '+geoTitle(g)+'.';
+  return plan;
+}
+function mapKey(){ return geoKey(S.cur)+'|'+(S.cmp ? geoKey(S.cmp) : ''); }
+function idxRow(type, id){
+  if (!S.idxMap){ S.idxMap = new Map(); S.meta.idx.forEach(r => S.idxMap.set(r[0]+'-'+r[1], r)); }
+  return S.idxMap.get(type+'-'+id) || null;
+}
+async function tigerQuery(layer, params){
+  const u = TIGER+layer+'/query?'+new URLSearchParams(Object.assign({inSR:'4326', spatialRel:'esriSpatialRelIntersects'}, params));
+  const r = await fetch(u); if (!r.ok) throw new Error('HTTP '+r.status);
+  const j = await r.json(); if (j.error) throw new Error(j.error.message || 'error');
+  return j;
+}
+// Everything at a clicked point that exists in our data: zip, county, metro, state.
+async function placesAt(ll){
+  const pt = {geometry:ll.lng.toFixed(5)+','+ll.lat.toFixed(5), geometryType:'esriGeometryPoint', returnGeometry:'false', f:'json'};
+  const q = (layer, fields) => tigerQuery(layer, Object.assign({outFields:fields}, pt)).then(j => j.features.map(f => f.attributes)).catch(() => []);
+  const [z, c, m1, m2, s] = await Promise.all([q(2,'GEOID'), q(82,'GEOID'), q(93,'GEOID'), q(91,'GEOID'), q(80,'STUSAB')]);
+  const out = [];
+  const add = (type, id) => { const r = idxRow(type, id); if (r) out.push({type, id, name:r[2]}); };
+  z.forEach(a => add('zip', a.GEOID)); c.forEach(a => add('county', a.GEOID));
+  m1.concat(m2).forEach(a => add('metro', a.GEOID)); s.forEach(a => add('state', a.STUSAB));
+  return {out, missingZip: z.length ? null : true, rawZip: z.length ? z[0].GEOID : null};
+}
+async function pickAt(map, ll){
+  const pop = L.popup({className:'mpick', maxWidth:300, autoPanPadding:[20,20]}).setLatLng(ll).setContent('<div class="pk-h">Looking up this spot…</div>').openOn(map);
+  let res;
+  try { res = await placesAt(ll); } catch(e){ pop.setContent('<div class="pk-h">Lookup failed — try again.</div>'); return; }
+  if (!map.hasLayer(pop)) return;
+  if (!res.out.length){ pop.setContent('<div class="pk-h">No realtor.com data for this spot.</div>'); return; }
+  const cur = S.cur ? geoKey(S.cur) : '';
+  let h = '<div class="pk-h">Open this area</div>';
+  res.out.forEach(p => {
+    const on = cur === p.type+'-'+p.id;
+    h += '<button class="pk'+(on ? ' on' : '')+'" data-t="'+p.type+'" data-id="'+esc(p.id)+'"><span class="pk-t">'+TYPE[p.type]+'</span><span class="pk-n">'+
+      (p.type === 'zip' ? '<b>'+esc(p.id)+'</b> ' : '')+esc(p.name)+'</span>'+(on ? '<span class="pk-on">showing</span>' : '')+'</button>';
+  });
+  if (res.missingZip) h += '<div class="pk-x">No zip area here (water, parkland or a PO-box-only area).</div>';
+  else if (res.rawZip && !idxRow('zip', res.rawZip)) h += '<div class="pk-x">Zip '+esc(res.rawZip)+' has no realtor.com data.</div>';
+  pop.setContent(h);
+  pop.getElement().querySelectorAll('button.pk').forEach(b => b.onclick = () => {
+    map.closePopup(pop);
+    if (b.classList.contains('on')) return;
+    select(b.dataset.t, b.dataset.id);
+  });
+}
+// Faint outlines of every zip in view once zoomed in, so you can see where one ends and the next begins.
+const ZIP_MIN_ZOOM = 10.5;
+function attachZipLayer(map, card){
+  const renderer = L.canvas({padding:0.3});
+  let layer = null, seq = 0, timer = null;
+  const hint = card.querySelector('.mhint');
+  const setHint = () => { hint.textContent = map.getZoom() >= ZIP_MIN_ZOOM ? 'Click any spot to open its zip, county, metro or state' : 'Zoom in to see zip outlines · click any spot to open it'; };
+  const refresh = async () => {
+    setHint();
+    const my = ++seq;
+    if (map.getZoom() < ZIP_MIN_ZOOM){ if (layer){ map.removeLayer(layer); layer = null; } return; }
+    const b = map.getBounds();
+    let gj;
+    try {
+      gj = await tigerQuery(2, {geometry:[b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(v => v.toFixed(4)).join(','),
+        geometryType:'esriGeometryEnvelope', outFields:'GEOID', outSR:'4326', maxAllowableOffset:map.getZoom() >= 12.5 ? '0.0002' : '0.0006', geometryPrecision:'5', f:'geojson'});
+    } catch(e){ return; }
+    if (my !== seq || !S.mapCard || S.mapCard.map !== map) return;
+    if (layer) map.removeLayer(layer);
+    const base = {color:'#2cc5b4', weight:1, opacity:0.55, fill:true, fillOpacity:0.02, fillColor:'#2cc5b4'};
+    layer = L.geoJSON(gj, {pane:'zips', renderer, style:() => base,
+      onEachFeature:(f, l) => {
+        const id = f.properties.GEOID, r = idxRow('zip', id);
+        l.bindTooltip('<b>'+esc(id)+'</b> '+(r ? esc(r[2]) : '<span style="color:#7f8bab">no data</span>'), {sticky:true, className:'mtip'});
+        l.on('mouseover', () => l.setStyle({weight:2, opacity:1, fillOpacity:0.12}));
+        l.on('mouseout', () => l.setStyle(base));
+      }}).addTo(map);
+  };
+  map.createPane('zips'); map.getPane('zips').style.zIndex = 390;
+  map.on('moveend', () => { clearTimeout(timer); timer = setTimeout(refresh, 300); });
+  setHint();
+}
+async function renderMap(g){
+  const box = $('mapbox'); if (!box) return;
+  // Re-renders (trailing window, benchmark) keep the existing map, so pan/zoom isn't reset.
+  if (S.mapCard && S.mapCard.key === mapKey()){ box.replaceWith(S.mapCard.el); S.mapCard.map.invalidateSize(); return; }
+  if (S.mapCard){ try { S.mapCard.map.remove(); } catch(e){} S.mapCard = null; }
+  const card = document.createElement('div');
+  card.className = 'card mapc';
+  if (typeof L === 'undefined'){
+    card.innerHTML = '<div class="mh"><h2>Location</h2></div><div class="mnote">The map library didn\'t load — check your connection and reload.</div>';
+    box.replaceWith(card); return;
+  }
+  const cmp = S.cmp;
+  card.innerHTML = '<div class="mh"><h2>Location'+tipBtn('map')+'</h2><div class="mlg">'+
+    (g.type === 'us' ? '' : '<span><i style="border-color:'+C.s1+';background:rgba(186,134,40,.25)"></i>'+esc(geoTitle(g))+'</span>')+
+    '<span class="ctxl" style="display:none"><i class="ctx"></i><b style="font-weight:400"></b></span>'+
+    (cmp && cmp.type !== 'us' ? '<span><i style="border-color:'+C.s3+';background:rgba(140,123,245,.2)"></i>'+esc(geoTitle(cmp))+'</span>' : '')+
+    '</div></div><div class="mnote" style="display:none"></div><div id="map"></div><div class="mhint"></div><div class="mstat">Loading outline…</div>';
+  box.replaceWith(card);
+  const map = L.map(card.querySelector('#map'), {scrollWheelZoom:false, zoomSnap:0.25, worldCopyJump:true});
+  // Esri dark gray canvas (no API key): base below the outlines, place/road labels on a pane above them.
+  const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  L.tileLayer(ESRI+'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom:16,
+    attribution:'Basemap &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Boundaries: US Census'}).addTo(map);
+  map.createPane('labels'); map.getPane('labels').style.zIndex = 450; map.getPane('labels').style.pointerEvents = 'none';
+  L.tileLayer(ESRI+'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:16, pane:'labels'}).addTo(map);
+  map.fitBounds(US48);
+  // Scroll-wheel zoom only after the map is clicked, so scrolling the page never gets trapped.
+  // A click also looks up what's at that spot and offers to open it.
+  map.on('click', e => { map.scrollWheelZoom.enable(); pickAt(map, e.latlng); });
+  map.on('mouseout', () => map.scrollWheelZoom.disable());
+  S.mapCard = {key:mapKey(), el:card, map};
+  attachZipLayer(map, card);
+  const stat = card.querySelector('.mstat'), mine = () => S.mapCard && S.mapCard.map === map;
+  let plan, cmpB = null;
+  try {
+    [plan, cmpB] = await Promise.all([mapPlan(g), cmp && cmp.type !== 'us' ? getBoundary(cmp.type, cmp.id).catch(() => null) : null]);
+  } catch(e){
+    if (mine()){ stat.textContent = 'Could not load the outline ('+e.message+').'; S.mapCard.key = null; }
+    return;
+  }
+  if (!mine()) return;
+  stat.remove();
+  const draw = (gj, style, tip) => {
+    const l = L.geoJSON(gj, {style, interactive:!!tip});
+    if (tip) l.bindTooltip(esc(tip), {sticky:true, className:'mtip'});
+    return l.addTo(map);
+  };
+  let ctxL = null, mainL = null;
+  if (plan.ctx){
+    ctxL = draw(plan.ctx, {color:C.ref, weight:1.5, dashArray:'6 5', fill:false}, null);
+    const cl = card.querySelector('.ctxl'); cl.style.display = ''; cl.querySelector('b').textContent = plan.ctxLabel;
+  }
+  if (cmpB) draw(cmpB, {color:C.s3, weight:2, fillColor:C.s3, fillOpacity:0.15}, geoTitle(cmp));
+  if (plan.main){ mainL = draw(plan.main, {color:'#d9b25f', weight:2.5, fillColor:C.s1, fillOpacity:0.22}, geoTitle(g)); mainL.bringToFront(); }
+  if (plan.note){ const n = card.querySelector('.mnote'); n.textContent = plan.note; n.style.display = ''; }
+  const target = mainL || ctxL;
+  if (target) map.fitBounds(target.getBounds(), {padding:[22,22], maxZoom:14});
+  else if (g.type === 'us') map.fitBounds(US48);
+}
+
+// ---------- mortgage distress (CFPB) ----------
+let cfpbP = null, z2cP = null;
+function loadCFPB(){ return cfpbP || (cfpbP = getJSON('d/cfpb_delinquency.json').catch(e => { cfpbP = null; throw e; })); }
+function loadZ2C(){ return z2cP || (z2cP = getJSON('d/zip_to_county.json').catch(e => { z2cP = null; throw e; })); }
+function cfpbArr(rec, k){
+  if (!rec || !rec[k]) return null;
+  const key = '_'+k;
+  if (!rec[key]){ const sc = S.cfpb.scale; rec[key] = rec[k].split(',').map(v => v === '' ? null : (+v)/sc); }
+  return rec[key];
+}
+function countyLabel(fips, cf){
+  if (cf) return cf.n+', '+cf.st;
+  const r = S.meta.idx.find(x => x[0] === 'county' && x[1] === fips);
+  return r ? r[2] : 'County '+fips;
+}
+// Decide which CFPB series to show for a geography, plus its comparison lines.
+function distressContext(g, z2c){
+  const C_ = S.cfpb, us = {key:'us', name:'United States', rec:C_.us};
+  const stRec = st => st && C_.states[st] ? {key:'st-'+st, name:C_.states[st].n, rec:C_.states[st]} : null;
+  if (g.type === 'us') return {level:'NATIONAL', main:us, comps:[]};
+  if (g.type === 'state'){ const s = stRec(g.id); return s ? {level:'STATE-LEVEL', main:s, comps:[us]} : null; }
+  const st = stRec(g.st);
+  const fallback = reason => st ? {level:'STATE-LEVEL', main:st, comps:[us], fallback:reason} : null;
+  if (g.type === 'metro') return fallback('CFPB county data doesn\'t map cleanly onto a metro, so this shows '+(st ? st.name : 'the state')+'. Open one of its counties or zips for county-level detail.');
+  let fips = null, note = null;
+  if (g.type === 'county') fips = g.id;
+  if (g.type === 'zip'){
+    const m = z2c && z2c[g.id];
+    if (!m) return fallback('Zip '+g.id+' isn\'t in the Census 2020 zip-area (ZCTA) list — often a PO-box or single-building zip — so it can\'t be matched to a county.');
+    fips = m[0];
+    if (m[2] > 1) note = 'Zip '+g.id+' spans '+m[2]+' counties; '+countyLabel(fips, C_.counties[fips])+' holds '+m[1]+'% of its land area and is used here.';
+  }
+  const cf = C_.counties[fips];
+  if (!cf){
+    if (fips.startsWith('09')) return fallback('Connecticut replaced its counties with planning regions in 2022; the Census zip-to-county file still uses the old counties, so CFPB\'s Connecticut series can\'t be matched to a zip yet.');
+    return fallback('CFPB doesn\'t publish '+countyLabel(fips, null)+' (it only reports counties with at least 1,000 mortgages in its sample).');
+  }
+  return {level:'COUNTY-LEVEL', main:{key:'co-'+fips, name:countyLabel(fips, cf), rec:cf}, comps:[st, us].filter(Boolean), note};
+}
+async function renderDistress(g){
+  const box = $('mdp'); if (!box) return;
+  box.innerHTML = '<div class="card md" style="margin-bottom:14px"><h2>Mortgage Distress</h2><div class="sub">Loading CFPB data…</div></div>';
+  let z2c = null;
+  try {
+    S.cfpb = await loadCFPB();
+    if (g.type === 'zip') z2c = await loadZ2C();
+  } catch(e){ if (S.cur === g) box.innerHTML = '<div class="card md" style="margin-bottom:14px"><h2>Mortgage Distress</h2><div class="sub">Could not load CFPB data ('+esc(e.message)+').</div></div>'; return; }
+  if (S.cur !== g || !$('mdp')) return;
+  const ctx = distressContext(g, z2c);
+  S.md = ctx;
+  if (!ctx){ $('mdp').innerHTML = ''; return; }
+  const M = S.cfpb.months, li = M.length-1, N = S.N;
+  const m90 = cfpbArr(ctx.main.rec,'d90'), m30 = cfpbArr(ctx.main.rec,'d30');
+  const t90 = trailing(m90, N), t30 = trailing(m30, N);
+  const par = ctx.comps[0] || null, p90 = par ? cfpbArr(par.rec,'d90') : null, pt90 = p90 ? trailing(p90, N) : null;
+  const pp = v => !isNum(v) ? '–' : v.toFixed(1)+'%';
+  const dp = v => !isNum(v) ? '–' : (v >= 0 ? '+' : '')+v.toFixed(1)+' pts';
+  const diff = (a, b) => isNum(a) && isNum(b) ? a-b : null;
+  const tile = (lab, val, rows, key) => '<div class="card kpi">'+tipBtn(key)+'<div class="lab">'+lab+'</div><div class="val">'+val+'</div>'+
+    rows.map(([l, v, c]) => '<div class="row"><span>'+l+'</span><span class="'+(c || '')+'">'+v+'</span></div>').join('')+'</div>';
+  const chg = diff(m90[li], m90[li-12]), chgT = diff(t90[li], t90[li-12]);
+  let h = '<div class="card md" style="margin-bottom:14px">'+
+    '<div class="mdh"><h2>Mortgage Distress'+tipBtn('distress')+'</h2><span class="lvl">'+ctx.level+'</span></div>'+
+    '<div class="sub"><b class="mdn">'+esc(ctx.main.name)+'</b> · source: CFPB/NMDB · share of mortgages delinquent, monthly '+mlong(M[0])+' – '+mlong(M[li])+'</div>'+
+    (ctx.fallback ? '<div class="mdnote w">'+esc(ctx.fallback)+'</div>' : '')+
+    (ctx.note ? '<div class="mdnote">'+esc(ctx.note)+'</div>' : '')+
+    '<div class="kpis" style="margin:12px 0 10px">'+
+    tile('90+ days delinquent · '+mlong(M[li]), pp(m90[li]), [[N+'M trailing avg', pp(t90[li])], ['30–89 days', pp(m30[li])], ['30–89 days, '+N+'M avg', pp(t30[li])]], 'md90')+
+    tile('90+ day change vs 12 months ago', dp(chg), [['From → to', pp(m90[li-12])+' → '+pp(m90[li])], [N+'M avg change', dp(chgT), cls(chgT,-1)], ['30–89 day change', dp(diff(m30[li], m30[li-12])), cls(diff(m30[li], m30[li-12]),-1)]], 'mdchg')+
+    (par ? tile('90+ day spread vs '+esc(par.name), dp(diff(m90[li], p90[li])), [[esc(ctx.main.name.split(',')[0]), pp(m90[li])], [esc(par.name), pp(p90[li])], [N+'M avg spread', dp(diff(t90[li], pt90[li])), cls(diff(t90[li], pt90[li]),-1)]], 'mdspr')
+         : tile('30–89 days delinquent · '+mlong(M[li]), pp(m30[li]), [[N+'M trailing avg', pp(t30[li])], ['12 months earlier', pp(m30[li-12])]], 'md30'))+
+    '</div>'+
+    '<div class="legend" id="lg_c_md"></div><div class="box" style="position:relative;height:260px"><canvas id="c_md"></canvas></div>'+
+    '<div class="note" style="font-size:12px;color:var(--muted);margin-top:8px">Lines are '+N+'-month trailing averages; the window setting applies. Red = more distress. CFPB data lag realtor.com by several months.</div>'+
+    '</div>';
+  $('mdp').innerHTML = h;
+  drawDistressChart();
+}
+function drawDistressChart(){
+  const ctx = S.md; if (!ctx || !S.cfpb || !$('c_md')) return;
+  const M = S.cfpb.months, N = S.N, L = M.length, start = S.win ? Math.max(0, L - S.win) : 0;
+  const cut = a => a.slice(start), ds = [], lg = [];
+  const add = (rec, k, label, color, w, dash) => { const a = cfpbArr(rec, k); if (!a) return; ds.push({label, data:cut(trailing(a, N)), borderColor:color, backgroundColor:color, borderWidth:w, borderDash:dash || [], pointRadius:0, pointHoverRadius:4, tension:.25}); };
+  const short = n => n.split(',')[0];
+  add(ctx.main.rec, 'd90', short(ctx.main.name)+' 90+', C.s1, 2.75);
+  add(ctx.main.rec, 'd30', short(ctx.main.name)+' 30–89', C.s2, 2.75);
+  lg.push([C.s1, short(ctx.main.name)+' 90+ days'], [C.s2, short(ctx.main.name)+' 30–89 days']);
+  ctx.comps.forEach((c, i) => {
+    const dash = i === 0 ? [6,4] : [2,3], col90 = i === 0 ? C.s1+'bb' : C.ref, col30 = i === 0 ? C.s2+'bb' : C.ref;
+    add(c.rec, 'd90', short(c.name)+' 90+', col90, 1.5, dash);
+    add(c.rec, 'd30', short(c.name)+' 30–89', col30, 1.5, dash);
+    lg.push([i === 0 ? C.s1 : C.ref, short(c.name)+(i === 0 ? ' (dashed, both rates)' : ' (dotted, both rates)'), 1]);
+  });
+  mk('c_md', ds, v => v.toFixed(1)+'%', true, lg, null, cut(M).map(mlab));
+}
+
+function rankPanel(g){
+  const M = S.meta.months, li = M.length-1;
+  let h = '<div class="card rank">';
+  if ((g.type === 'zip' || g.type === 'county') && g.st){
+    const n = (S.meta.rankN[g.type] || {})[g.st];
+    const sn = stateGeo(g.st) ? geoTitle(stateGeo(g.st)) : g.st;
+    h += '<h2>Where it ranks in '+esc(sn)+tipBtn('rank')+'</h2><div class="sub">Percentile among '+(n ? n.toLocaleString()+' ' : '')+esc(g.st)+' '+g.type+(g.type === 'county' ? ' areas' : 's')+' with data, '+mlong(M[li])+' (100 = highest)</div>';
+    const rk = g.rk || {};
+    [['p','Median list price'],['f','$ / sq ft'],['al','Active listings'],['dom','Days on market'],['prs','Price-reduced share'],['pr','Pending ratio']].forEach(([k,l]) => {
+      const v = rk[k];
+      h += '<div class="r"><span>'+l+'</span><div class="bar"><i style="width:'+(isNum(v) ? v : 0)+'%"></i></div><b>'+(isNum(v) ? v : '–')+'</b></div>';
+    });
+    if (!g.rk) h += '<div class="sub">No '+mlong(M[li])+' data to rank.</div>';
+  } else if (g.type === 'metro'){
+    h += '<h2>Metro size'+tipBtn('metrosize')+'</h2><div class="sub">realtor.com household rank among US metros</div>'+
+      (g.hr ? '<div class="big">#'+g.hr.toLocaleString()+'</div><div class="sub">of '+S.counts.metro.toLocaleString()+' metros (1 = most households)</div>' : '<div class="sub">Not ranked.</div>')+
+      '<div class="sub" style="margin-top:14px">Percentile ranks within the state are shown for zips and counties.</div>';
+  } else {
+    h += '<h2>Rankings</h2><div class="sub" style="margin-top:8px">Percentile ranks within the state are shown for zips and counties. Search one to see where it sits.</div>';
+  }
+  return h + '</div>';
+}
+
+function marketRead(g, pg){
+  const li = S.meta.months.length-1, items = [];
+  const B = k => pg ? T(pg,k)[li] : null;
+  const add = (s, t) => items.push({s, t});
+  const bl = pg ? esc(geoTitle(pg)) : '';
+  const dom = T(g,'dom')[li], bdom = B('dom');
+  if (isNum(dom) && bdom){ const r = dom/bdom; add(r < 0.85 ? 1 : r > 1.15 ? -1 : 0, 'Days on market '+Math.round(dom)+' vs '+Math.round(bdom)+' for '+bl+' ('+r.toFixed(2)+'×, '+(r < 1 ? Math.round((1-r)*100)+'% faster' : Math.round((r-1)*100)+'% slower')+').'); }
+  const prs = T(g,'prs')[li], bprs = B('prs');
+  if (isNum(prs) && isNum(bprs)){ const df = prs-bprs; add(df < -0.03 ? 1 : df > 0.03 ? -1 : 0, 'Price-reduced share '+fmt.pct(prs)+' vs '+fmt.pct(bprs)+' for '+bl+' ('+fmt.pts(df)+').'); }
+  const pr = T(g,'pr')[li], bpr = B('pr');
+  if (isNum(pr) && bpr){ const r = pr/bpr; add(r > 1.15 ? 1 : r < 0.85 ? -1 : 0, 'Pending ratio '+pr.toFixed(2)+' vs '+bpr.toFixed(2)+' for '+bl+' ('+r.toFixed(2)+'×).'); }
+  const al = T(g,'al')[li], al0 = T(g,'al')[li-12];
+  if (isNum(al) && al0){ const c = al/al0-1; add(c < -0.05 ? 1 : c > 0.15 ? -1 : 0, 'Active inventory '+fmt.chg(c)+' YoY ('+fmt.num1(al0)+' → '+fmt.num1(al)+' avg listings).'); }
+  const d0 = T(g,'dom')[li-12];
+  if (isNum(dom) && d0){ const c = dom/d0-1; add(c < -0.10 ? 1 : c > 0.10 ? -1 : 0, 'Days on market '+fmt.chg(c)+' YoY ('+Math.round(d0)+' → '+Math.round(dom)+' days).'); }
+  const f = T(g,'f')[li], f0 = T(g,'f')[li-12];
+  if (isNum(f) && f0){ const c = f/f0-1; add(c > 0.03 ? 1 : c < -0.02 ? -1 : 0, 'Price per sq ft '+fmt.chg(c)+' YoY ($'+Math.round(f0)+' → $'+Math.round(f)+').'); }
+  // Two closed-sales signals when Redfin covers this place (score out of ±8 instead of ±6).
+  if (g.rs){
+    const mos = T(g,'rs_mos')[li];
+    const src = 'Redfin'+(g.rsdiv ? ', '+esc(g.rsdiv) : '');
+    if (isNum(mos)) add(mos < 4 ? 1 : mos > 6 ? -1 : 0, 'Months of supply '+mos.toFixed(1)+' ('+src+'; under 4 = seller\'s market, over 6 = buyer\'s).');
+    const sl = T(g,'rs_sl')[li];
+    if (isNum(sl)) add(sl >= 1 ? 1 : sl < 0.97 ? -1 : 0, 'Sale-to-list '+(sl*100).toFixed(1)+'% ('+src+'; 100%+ = selling at or over asking, under 97% = well below).');
+  }
+  const score = items.reduce((a,b) => a+b.s, 0), max = items.length;
+  let label = 'Balanced', c = 'bal';
+  if (!max) label = 'Not enough data';
+  else if (score >= 2){ label = 'Seller-leaning'; c = 'sel'; }
+  else if (score <= -2){ label = 'Buyer-leaning'; c = 'buy'; }
+  if (!pg && max) items.push({s:0, t:'No benchmark above the national level, so only the three year-over-year signals apply.'});
+  return {label, cls:c, score, max, items};
+}
+
+// ---------- charts ----------
+function windowStart(){ const L = S.meta.months.length; return S.win ? Math.max(0, L - S.win) : 0; }
+function sl(a){ return a ? a.slice(windowStart()) : a; }
+
+function baseOpts(yfmt, yMin0){
+  return {
+    responsive:true, maintainAspectRatio:false, animation:false, spanGaps:true,
+    interaction:{mode:'index', intersect:false},
+    plugins:{ legend:{display:false},
+      tooltip:{backgroundColor:'#0b1529', borderColor:'rgba(255,255,255,.15)', borderWidth:1, titleColor:'#eef2fb', bodyColor:'#b7c1d9', padding:10,
+        callbacks:{label: c => ' '+c.dataset.label+': '+(c.parsed.y === null ? '–' : yfmt(c.parsed.y))},
+        filter: c => c.parsed.y !== null }},
+    scales:{
+      x:{grid:{display:false}, ticks:{color:C.tick, maxRotation:0, autoSkip:true, maxTicksLimit:8}, border:{color:'rgba(255,255,255,.15)'}},
+      y:{beginAtZero:!!yMin0, grid:{color:C.grid}, border:{display:false}, ticks:{color:C.tick, callback:v => yfmt(v), maxTicksLimit:6}}
+    }
+  };
+}
+function rawDS(label, data, color, flags){
+  const D = sl(data), F = flags ? sl(flags) : null, r = D.length > 60 ? 1.8 : 2.6;
+  return {label:label+' (monthly)', data:D, borderColor:color+'88', backgroundColor:color, borderWidth:1.25, tension:0,
+    pointRadius:D.map(v => v === null ? 0 : r), pointHoverRadius:5, pointBorderColor:color, pointBorderWidth:1.2,
+    pointBackgroundColor:F ? F.map(q => q === 1 ? 'rgba(0,0,0,0)' : color) : color};
+}
+function lineDS(label, data, color, w){ return {label, data:sl(data), borderColor:color, backgroundColor:color, borderWidth:w || 2.75, pointRadius:0, pointHoverRadius:5, tension:.25}; }
+function refDS(label, data){ return {label, data:sl(data), borderColor:C.ref, backgroundColor:C.ref, borderWidth:1.5, borderDash:[6,4], pointRadius:0, pointHoverRadius:4, tension:.25}; }
+function legendHTML(items){ return items.map(([c,l,dash]) => '<span><i style="border-top-color:'+c+';'+(dash ? 'border-top-style:dashed' : '')+'"></i>'+esc(l)+'</span>').join(''); }
+
+// Bridge short gaps (1–2 missing months) but break the line across longer ones, so sparse
+// places never show an invented straight line over years with no data.
+const MAX_BRIDGE = 2;
+function gapSegment(data){
+  const long = new Array(data.length).fill(false);
+  for (let i = 0; i < data.length; ){
+    if (data[i] !== null){ i++; continue; }
+    let j = i; while (j < data.length && data[j] === null) j++;
+    if (j - i > MAX_BRIDGE) for (let k = i; k < j; k++) long[k] = true;
+    i = j;
+  }
+  return {borderColor: ctx => (long[ctx.p0DataIndex] || long[ctx.p1DataIndex]) ? 'rgba(0,0,0,0)' : undefined};
+}
+function mk(id, datasets, yfmt, yMin0, legend, extra, labels){
+  if (S.charts[id]) S.charts[id].destroy();
+  datasets.forEach(ds => { if (!ds.segment) ds.segment = gapSegment(ds.data); });
+  const o = baseOpts(yfmt, yMin0); if (extra) extra(o);
+  const plugins = o._plugins || []; delete o._plugins;
+  S.charts[id] = new Chart($(id), {type:'line', data:{labels:labels || sl(S.meta.months).map(mlab), datasets}, options:o, plugins});
+  if (legend) $('lg_'+id).innerHTML = legendHTML(legend);
+}
+
+function drawCharts(g, bg){
+  Object.values(S.charts).forEach(c => c.destroy()); S.charts = {};
+  const d = g.d, N = S.N, raw = S.raw, cmp = S.cmp;
+  const bl = bg ? geoTitle(bg)+' ('+N+'M avg)' : null;
+  const cl = cmp ? geoTitle(cmp)+' ('+N+'M avg)' : null;
+  const single = (id, k, f, label, min0, withCmp) => {
+    const ds = [], lg = [];
+    if (raw){ ds.push(rawDS(label, d[k], C.s1, d.q)); lg.push([C.s1, 'Monthly']); }
+    ds.push(lineDS(label+' ('+N+'M avg)', T(g,k), C.s2)); lg.push([C.s2, N+'-month trailing avg']);
+    if (withCmp && cmp){ ds.push(lineDS(cl, T(cmp,k), C.s3, 2.25)); lg.push([C.s3, cl]); }
+    if (bg){ ds.push(refDS(bl, T(bg,k))); lg.push([C.ref, bl, 1]); }
+    mk(id, ds, f, min0, lg);
+  };
+  single('c_p','p',fmt.usd,'Median price',false,true);
+  single('c_f','f',fmt.psf,'$/sq ft',false,true);
+  single('c_dom','dom',v => Math.round(v)+'d','Days on market',true,true);
+  single('c_pr','pr',v => v.toFixed(2),'Pending ratio',true,true);
+  single('c_sq','s',v => Math.round(v).toLocaleString(),'Median sq ft',false,false);
+
+  { const ds = [], lg = [];
+    [['al','Active',C.s1],['nl','New',C.s2],['pl','Pending',C.s3]].forEach(([k,l,c]) => {
+      if (raw) ds.push(Object.assign(rawDS(l, d[k], c), {pointRadius:0, borderWidth:1, borderDash:[2,3]}));
+      ds.push(lineDS(l+' ('+N+'M avg)', T(g,k), c)); lg.push([c, l+' ('+N+'M avg)']);
+    });
+    if (raw) lg.push([C.tick, 'dotted = monthly', 1]);
+    mk('c_inv', ds, fmt.num, true, lg);
+  }
+  { const ds = [], lg = [];
+    [['prs','Price reduced',C.s1],['pis','Price increased',C.s3]].forEach(([k,l,c]) => {
+      if (raw) ds.push(Object.assign(rawDS(l, d[k], c), {pointRadius:0, borderWidth:1, borderDash:[2,3]}));
+      ds.push(lineDS(l+' ('+N+'M avg)', T(g,k), c)); lg.push([c, l+' ('+N+'M avg)']);
+    });
+    if (bg){ ds.push(refDS('Reduced — '+bl, T(bg,'prs'))); lg.push([C.ref, 'Reduced: '+bl, 1]); }
+    mk('c_red', ds, v => (v*100).toFixed(0)+'%', true, lg);
+  }
+  { const ds = [], lg = [];
+    [['p','Median price',C.s1],['f','$/sq ft',C.s2],['al','Active listings',C.s3]].forEach(([k,l,c]) => {
+      ds.push(lineDS(l, yoy(T(g,k)), c, 2.5)); lg.push([c, l]);
+    });
+    mk('c_yoy', ds, v => (v >= 0 ? '+' : '')+(v*100).toFixed(0)+'%', false, lg, o => {
+      o.plugins.tooltip.callbacks.label = c => ' '+c.dataset.label+': '+(c.parsed.y === null ? '–' : (c.parsed.y >= 0 ? '+' : '')+(c.parsed.y*100).toFixed(1)+'%');
+      o.scales.y.grid.color = c => c.tick.value === 0 ? 'rgba(255,255,255,.45)' : C.grid;
+      o.scales.y.grid.lineWidth = c => c.tick.value === 0 ? 1.5 : 1;
+    });
+  }
+  if (g.rs) drawRSCharts(g, bg);
+  if (g.zl) drawZLCharts(g, bg);
+  seasonal('c_sp', d.p, fmt.usd);
+  seasonal('c_sa', d.al, fmt.num);
+  drawDistressChart();
+}
+
+function seasonal(id, arr, f){
+  const M = S.meta.months, byYear = {};
+  M.forEach((m,i) => { const y = Math.floor(m/100); (byYear[y] = byYear[y] || new Array(12).fill(null))[(m%100)-1] = arr[i]; });
+  const years = Object.keys(byYear).map(Number).sort((a,b) => a-b).filter(y => byYear[y].some(v => v !== null));
+  const n = years.length, ds = [];
+  years.forEach((y,i) => {
+    const last = i === n-1, prev = i === n-2;
+    const a = n > 2 ? 0.18 + 0.5*(i/(n-3 || 1)) : 0.6;
+    const color = last ? C.s1 : prev ? C.s2 : 'rgba(138,147,168,'+Math.min(a, 0.68).toFixed(2)+')';
+    ds.push({label:String(y), data:byYear[y], borderColor:color, backgroundColor:color, borderWidth:last ? 3 : prev ? 2.25 : 1.25,
+      pointRadius:last ? 2.5 : 0, pointHoverRadius:4, tension:.25, order:last ? 0 : prev ? 1 : 2});
+  });
+  const lg = [];
+  if (n) lg.push([C.s1, String(years[n-1])]);
+  if (n > 1) lg.push([C.s2, String(years[n-2])]);
+  if (n > 2) lg.push(['rgba(138,147,168,.6)', years[0]+'–'+years[n-3]+' (lighter = earlier)']);
+  mk(id, ds.reverse(), f, false, lg, o => { o.plugins.tooltip.itemSort = (a,b) => (+b.dataset.label) - (+a.dataset.label); }, MON);
+}
+
+// ---------- table ----------
+const COLS = [['p','Median price',fmt.usdFull],['f','$/sqft',fmt.psf],['s','Sq ft',fmt.num],['a','Avg price',fmt.usdFull],
+  ['al','Active',fmt.num],['nl','New',fmt.num],['pl','Pending',fmt.num],['tl','Total',fmt.num],['dom','DOM',fmt.num],
+  ['prs','Reduced %',fmt.pct],['pis','Increased %',fmt.pct],['pr','Pending ratio',fmt.ratio]];
+const TACOLS = [['p','Price',fmt.usdFull,'median_price'],['f','$/sqft',fmt.psf,'price_per_sqft'],['al','Active',fmt.num1,'active'],['nl','New',fmt.num1,'new'],
+  ['pl','Pending',fmt.num1,'pending'],['dom','DOM',fmt.num1,'dom'],['prs','Reduced %',fmt.pct,'price_reduced_share'],['pr','Pend. ratio',v => !isNum(v) ? '–' : v.toFixed(3),'pending_ratio']];
+const CSVNAME = {p:'median_listing_price',f:'median_price_per_sqft',s:'median_sqft',a:'average_listing_price',al:'active_listings',nl:'new_listings',
+  pl:'pending_listings',tl:'total_listings',dom:'median_days_on_market',prs:'price_reduced_share',pis:'price_increased_share',pr:'pending_ratio'};
+function drawTable(g){
+  const M = S.meta.months, d = g.d, N = S.N;
+  let h = '<table><thead><tr><th>Month</th>'+COLS.map(c => '<th>'+c[1]+'</th>').join('')+TACOLS.map(c => '<th class="ta">'+c[1]+' '+N+'M</th>').join('')+'</tr></thead><tbody>';
+  for (let i = M.length-1; i >= 0; i--){
+    if (COLS.every(([k]) => d[k][i] === null)) continue;
+    h += '<tr class="'+(d.q[i] === 1 ? 'q' : '')+'"><td>'+mlong(M[i])+'</td>'+COLS.map(([k,,f]) => '<td>'+f(d[k][i])+'</td>').join('')+
+      TACOLS.map(([k,,f]) => '<td>'+f(T(g,k)[i])+'</td>').join('')+'</tr>';
+  }
+  $('tbl').innerHTML = h+'</tbody></table>';
+}
+function csvCell(v){ const s = String(v); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+function copyCSV(g){
+  const M = S.meta.months, d = g.d, N = S.N;
+  const head = ['month','geo_type','geo_id','name'].concat(COLS.map(c => CSVNAME[c[0]]), TACOLS.map(c => c[3]+'_ta'+N), ['quality_flag']);
+  const lines = [head.join(',')];
+  for (let i = 0; i < M.length; i++){
+    if (COLS.every(([k]) => d[k][i] === null)) continue;
+    lines.push([M[i], g.type, g.type === 'us' ? 'US' : g.id, csvCell(geoTitle(g))].concat(
+      COLS.map(([k]) => d[k][i] === null ? '' : +d[k][i].toFixed(4)),
+      TACOLS.map(([k]) => { const v = T(g,k)[i]; return v === null ? '' : +v.toFixed(4); }),
+      [d.q[i] === null ? '' : d.q[i]]).join(','));
+  }
+  const txt = lines.join('\n');
+  const ok = () => toast('Copied '+(lines.length-1)+' rows — paste into Excel');
+  const fallback = () => {
+    const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy') ? ok() : toast('Copy blocked by browser'); } catch(e){ toast('Copy blocked by browser'); }
+    ta.remove();
+  };
+  try { navigator.clipboard.writeText(txt).then(ok, fallback); } catch(e){ fallback(); }
+}
+// ---------- screener ----------
+// Ranks every place at one level from d/scr/<level>.json (last 24 months, delta-encoded, same scaling
+// as the explorer). Every figure is the N-month trailing average from the shared box; every YoY compares
+// that average with the same window 12 months earlier, exactly like the explorer tiles.
+const SCR = {level:'zip', st:'', minAl:25, pmin:null, pmax:null, top:100, sort:{k:'prc', dir:-1}, files:{}, calc:{}, built:false, seq:0, shown:[], total:0, rsFiles:{}, rsData:{}, rsFail:{}, zlFiles:{}, zlData:{}, zlFail:{}, rentOnly:false};
+const SCR_PLURAL = {state:'states', metro:'metros', county:'counties', zip:'zips'};
+// [key, header, formatter, color direction (+1 rising = tighter for sellers, -1 falling = tighter, 0 = none)]
+const SCOLS = [
+  ['p','Median price',fmt.usd,0], ['pY','Price YoY',fmt.chg,1],
+  ['f','$/sq ft',fmt.psf,0], ['fY','$/sq ft YoY',fmt.chg,1],
+  ['al','Active listings',fmt.num,0], ['alY','Active YoY',fmt.chg,-1],
+  ['nl','New listings',fmt.num,0], ['nlY','New YoY',fmt.chg,-1],
+  ['dom','Median DOM',fmt.num,0], ['domY','DOM YoY',fmt.chg,-1],
+  ['prs','Price-reduced share',fmt.pct,0], ['prsY','Reduced share YoY',fmt.pts,-1],
+  ['prc','Price-reduced count',fmt.num,0], ['prcY','Reduced count YoY',fmt.chg,-1],
+  ['pr','Pending ratio',fmt.ratio,0], ['prY','Pending ratio YoY',fmt.chg,1],
+  // Redfin closed sales (loaded from scr/<level>_rs.json after the table first appears)
+  ['rs_p','Median sale price',fmt.usd,0], ['rs_pY','Sale price YoY',fmt.chg,1],
+  ['rs_n','Homes sold',fmt.num,0], ['rs_nY','Homes sold YoY',fmt.chg,1],
+  ['rs_mos','Months of supply',fmt.mos,0], ['rs_sl','Sale-to-list',fmt.pct,0],
+  ['gap','List-to-sale gap',fmt.chg,0],
+  // Zillow (scr/<level>_zl.json, at Zillow's latest month)
+  ['zv','Home value (ZHVI)',fmt.usd,0], ['zvY','Value YoY',fmt.chg,1],
+  ['zr','Rent (ZORI)',fmt.rent,0], ['zrY','Rent YoY',fmt.chg,1],
+  ['zy','Gross yield',v => !isNum(v) ? '–' : (v*100).toFixed(2)+'%',0], ['zl2v','List-to-value',fmt.pct,0],
+  ['score','Market score',null,0]
+];
+const SCR_ZL_COLS = new Set(['zv','zvY','zr','zrY','zy','zl2v']);
+const SCR_TIPS = {
+  n:'Place name.', st:'State (a metro\'s first-listed state).',
+  p:'Median list price, N-month trailing average (realtor.com).', pY:'List price vs the same window a year earlier.',
+  f:'Median list price per sq ft, trailing average.', fY:'$/sq ft vs a year earlier.',
+  al:'Active listings (homes for sale), trailing average.', alY:'Active listings vs a year earlier. Rising = inventory building.',
+  nl:'New listings that month, trailing average.', nlY:'New listings vs a year earlier.',
+  dom:'Median days on market, trailing average.', domY:'Days on market vs a year earlier. Rising = slowing.',
+  prs:'Share of active listings with a price cut, trailing average.', prsY:'Price-cut share vs a year earlier, in percentage points.',
+  prc:'Number of active listings with a price cut, trailing average.', prcY:'Price-cut count vs a year earlier.',
+  pr:'Pending ratio: homes going under contract ÷ active listings, trailing average.', prY:'Pending ratio vs a year earlier.',
+  rs_p:'Median sale price (Redfin), trailing average; zips are 3-mo rolling.', rs_pY:'Sale price vs a year earlier.',
+  rs_n:'Homes sold (Redfin), trailing average.', rs_nY:'Homes sold vs a year earlier.',
+  rs_mos:'Months of supply (Redfin): under 4 = seller\'s market, over 6 = buyer\'s.', rs_sl:'Sale-to-list (Redfin): average sale ÷ list price; over 100% = selling over asking.',
+  gap:'List-to-sale gap: median list price ÷ median sale price − 1. Positive = asking prices above recent sale prices.',
+  zv:'Zillow typical home value (ZHVI), trailing average at Zillow\'s latest month.', zvY:'Home value vs a year earlier.',
+  zr:'Zillow typical rent per month (ZORI), trailing average.', zrY:'Rent vs a year earlier.',
+  zy:'Gross rent yield: rent × 12 ÷ home value.', zl2v:'List-to-value: realtor.com median list price ÷ Zillow home value, at Zillow\'s latest month.',
+  score:'Market score: the market read\'s signals (+1 seller / −1 buyer each). +2 or more = Seller, −2 or less = Buyer.'
+};
+const SCR_RS_COLS = new Set(['rs_p','rs_pY','rs_n','rs_nY','rs_mos','rs_sl','gap']);
+// Presets set the sort only. dir -1 = highest first, +1 = lowest first.
+const PRESETS = [
+  ['Levels','Highest price','p',-1], ['Levels','Lowest price','p',1], ['Levels','Highest $/sq ft','f',-1],
+  ['Levels','Most inventory','al',-1], ['Levels','Most new listings','nl',-1], ['Levels','Most price cuts','prc',-1],
+  ['Levels','Highest price-cut share','prs',-1], ['Levels','Highest pending ratio','pr',-1],
+  ['Levels','Selling fastest','dom',1], ['Levels','Slowest selling','dom',-1],
+  ['Changes','Price cuts rising fastest','prsY',-1], ['Changes','Biggest inventory build','alY',-1],
+  ['Changes','Fastest price gains','pY',-1], ['Changes','Prices falling','pY',1],
+  ['Changes','Cooling fastest','domY',-1], ['Changes','Hottest','score',-1],
+  ['Closed sales','Lowest months of supply','rs_mos',1], ['Closed sales','Selling over asking','rs_sl',-1],
+  ['Closed sales','Sales volume falling fastest','rs_nY',1], ['Closed sales','Highest sale price','rs_p',-1],
+  ['Closed sales','Most homes sold','rs_n',-1], ['Closed sales','Biggest list-to-sale gap','gap',-1],
+  ['Values & rents','Highest rental yield','zy',-1], ['Values & rents','Rents rising fastest','zrY',-1],
+  ['Values & rents','Values falling','zvY',1], ['Values & rents','Listed above value','zl2v',-1]
+];
+function loadScr(level){
+  return SCR.files[level] || (SCR.files[level] = getJSON('d/scr/'+level+'.json').then(o => {
+    const sc = S.meta.scale, rows = [];
+    for (const id in o.rows){
+      const r = o.rows[id], d = {};
+      o.keys.forEach((k, j) => {
+        const s = r[j+2], f = k in sc ? 1/sc[k] : 1;
+        if (!s){ d[k] = null; return; }
+        let prev = 0;   // delta-encoded: each value is the change from the previous non-blank value
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v)*f);
+      });
+      rows.push({id, n:r[0], st:r[1], d});
+    }
+    return {start:o.start, rows};
+  }).catch(e => { delete SCR.files[level]; throw e; }));
+}
+// Redfin columns for the screener: {id: {rs_p:[...], ...}} on the same 24-month window.
+function loadScrRs(level){
+  return SCR.rsFiles[level] || (SCR.rsFiles[level] = getJSON('d/scr/'+level+'_rs.json').then(o => {
+    const sc = S.meta.scale, out = {};
+    for (const id in o.rows){
+      const d = {};
+      o.keys.forEach((k, j) => {
+        const s = o.rows[id][j], f = k in sc ? 1/sc[k] : 1;
+        if (!s){ d[k] = null; return; }
+        let prev = 0;
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v)*f);
+      });
+      out[id] = d;
+    }
+    SCR.rsData[level] = out;
+    return out;
+  }).catch(e => { delete SCR.rsFiles[level]; SCR.rsFail[level] = e.message; throw e; }));
+}
+// Zillow columns for the screener: {id: {zv:[...], zr:[...]}} on the same 24-month window.
+function loadScrZl(level){
+  return SCR.zlFiles[level] || (SCR.zlFiles[level] = getJSON('d/scr/'+level+'_zl.json').then(o => {
+    const out = {};
+    for (const id in o.rows){
+      const d = {};
+      o.keys.forEach((k, j) => {
+        const s = o.rows[id][j];
+        if (!s){ d[k] = null; return; }
+        let prev = 0;
+        d[k] = s.split(',').map(v => v === '' ? null : (prev += +v));
+      });
+      out[id] = d;
+    }
+    SCR.zlData[level] = {start:o.start, rows:out};
+    return out;
+  }).catch(e => { delete SCR.zlFiles[level]; SCR.zlFail[level] = e.message; throw e; }));
+}
+// Trailing average at a given index of a series, and 12 months before it.
+function tAt(arr, N, i){
+  if (!arr || i < 0 || i >= arr.length) return [null, null];
+  const t = trailing(arr, N);
+  return [t[i], i >= 12 ? t[i-12] : null];
+}
+// Latest trailing average and the one 12 months earlier (null when the 24-month file can't cover it).
+function tNowAgo(arr, N){
+  if (!arr) return [null, null];
+  const t = trailing(arr, N), li = arr.length-1;
+  return [t[li], li >= 12 ? t[li-12] : null];
+}
+function scrRow(r, N, rd, zd, zi){
+  const x = {id:r.id, n:r.n, st:r.st};
+  const ch = (a, b) => isNum(a) && b ? a/b-1 : null;
+  for (const k of ['p','f','al','nl','dom','prs','prc','pr']){
+    const [now, ago] = tNowAgo(r.d[k], N);
+    x[k] = now;
+    x[k+'Y'] = k === 'prs' ? (isNum(now) && isNum(ago) ? now-ago : null) : ch(now, ago);
+  }
+  if (rd){
+    const [p, p0] = tNowAgo(rd.rs_p, N), [n, n0] = tNowAgo(rd.rs_n, N);
+    x.rs_p = p; x.rs_pY = ch(p, p0); x.rs_n = n; x.rs_nY = ch(n, n0);
+    x.rs_mos = tNowAgo(rd.rs_mos, N)[0]; x.rs_sl = tNowAgo(rd.rs_sl, N)[0];
+    x.gap = isNum(x.p) && x.rs_p ? x.p/x.rs_p-1 : null;   // how far asking prices sit above recent sale prices
+    x.hasRS = [x.rs_p, x.rs_n, x.rs_mos, x.rs_sl].some(isNum);
+  }
+  if (zd){
+    const [v, v0] = tAt(zd.zv, N, zi), [rt, rt0] = tAt(zd.zr, N, zi);
+    x.zv = v; x.zvY = ch(v, v0); x.zr = rt; x.zrY = ch(rt, rt0);
+    // Same as the explorer: derive each month's ratio, then take its trailing average.
+    const ratio = (a, b, f) => a && b ? a.map((u, j) => isNum(u) && b[j] ? f(u, b[j]) : null) : null;
+    x.zy = tAt(ratio(zd.zr, zd.zv, (rt_, v_) => rt_*12/v_), N, zi)[0];
+    x.zl2v = tAt(ratio(r.d.p, zd.zv, (l, v_) => l/v_), N, zi)[0];   // realtor.com list ÷ ZHVI
+    x.hasZL = isNum(v) || isNum(rt);
+  }
+  return x;
+}
+// The explorer's market-read signals, scored the same way (six listing signals + two Redfin ones).
+function scrScore(x, b){
+  let s = 0, n = 0;
+  const add = v => { s += v; n++; };
+  if (b){
+    if (isNum(x.dom) && b.dom){ const r = x.dom/b.dom; add(r < 0.85 ? 1 : r > 1.15 ? -1 : 0); }
+    if (isNum(x.prs) && isNum(b.prs)){ const d = x.prs-b.prs; add(d < -0.03 ? 1 : d > 0.03 ? -1 : 0); }
+    if (isNum(x.pr) && b.pr){ const r = x.pr/b.pr; add(r > 1.15 ? 1 : r < 0.85 ? -1 : 0); }
+  }
+  if (isNum(x.alY)) add(x.alY < -0.05 ? 1 : x.alY > 0.15 ? -1 : 0);
+  if (isNum(x.domY)) add(x.domY < -0.10 ? 1 : x.domY > 0.10 ? -1 : 0);
+  if (isNum(x.fY)) add(x.fY > 0.03 ? 1 : x.fY < -0.02 ? -1 : 0);
+  // The explorer's two closed-sales signals, when Redfin covers the place.
+  if (isNum(x.rs_mos)) add(x.rs_mos < 4 ? 1 : x.rs_mos > 6 ? -1 : 0);
+  if (isNum(x.rs_sl)) add(x.rs_sl >= 1 ? 1 : x.rs_sl < 0.97 ? -1 : 0);
+  return n ? s : null;
+}
+async function scrCalc(level, N){
+  const rsd = SCR.rsData[level] || null, zld = SCR.zlData[level] || null;
+  const key = level+'|'+N+'|'+(rsd ? 'rs' : '')+'|'+(zld ? 'zl' : '');
+  if (SCR.calc[key]) return SCR.calc[key];
+  const file = await loadScr(level);
+  // Benchmark: parent state (from the state screener file) for zips and counties; the US for states and metros.
+  let bench = () => null;
+  if (level === 'zip' || level === 'county'){
+    const sf = await loadScr('state'), bs = {};
+    sf.rows.forEach(r => bs[r.id] = scrRow(r, N));
+    bench = x => bs[x.st] || null;
+  } else if (S.usGeo){
+    const li = S.meta.months.length-1, u = {};
+    ['dom','prs','pr'].forEach(k => u[k] = T(S.usGeo, k)[li]);
+    bench = () => u;
+  }
+  // Zillow's latest month, as an index into the screener's 24-month window
+  const zi = zld && S.meta.zl && S.meta.zl.last ? S.meta.months.indexOf(S.meta.zl.last.zv) - zld.start : -1;
+  const out = file.rows.map(r => { const x = scrRow(r, N, rsd ? (rsd[r.id] || {}) : null, zld ? (zld.rows[r.id] || {}) : null, zi); x.score = scrScore(x, bench(x)); return x; });
+  SCR.calc = {}; SCR.calc[key] = out;   // keep one level/window at a time
+  return out;
+}
+const scoreLabel = s => s === null ? null : s >= 2 ? ['Seller','sel'] : s <= -2 ? ['Buyer','buy'] : ['Balanced','bal'];
+function buildScrUI(){
+  const states = S.meta.idx.filter(r => r[0] === 'state').sort((a,b) => a[2].localeCompare(b[2]));
+  let h = '<div class="card controls" style="margin-top:0"><div class="sctl" style="margin:0">'+
+    '<div class="ctl"><label class="l">Level</label><div class="seg" id="slv">'+
+      ['state','metro','county','zip'].map(t => '<button data-v="'+t+'"'+(t === SCR.level ? ' class="on"' : '')+'>'+TYPE[t]+'</button>').join('')+'</div></div>'+
+    '<div class="ctl"><label class="l" for="sst">State</label><select id="sst"><option value="">All states</option>'+
+      states.map(r => '<option value="'+r[1]+'">'+esc(r[2])+'</option>').join('')+'</select></div>'+
+    '<div class="ctl"><label class="l" for="smin">Min avg active listings</label><input type="number" id="smin" min="0" step="5" value="'+SCR.minAl+'" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l" for="spmin">Median price min</label><input type="number" id="spmin" min="0" step="25000" placeholder="any" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l" for="spmax">Median price max</label><input type="number" id="spmax" min="0" step="25000" placeholder="any" inputmode="numeric"></div>'+
+    '<div class="ctl"><label class="l">Show top</label><div class="seg" id="stop">'+
+      [50,100,250].map(n => '<button data-v="'+n+'"'+(n === SCR.top ? ' class="on"' : '')+'>'+n+'</button>').join('')+'</div></div>'+
+    '<div class="ctl"><label class="chk"><input type="checkbox" id="srent"> Has rent data</label></div>'+
+    '</div>';
+  ['Levels','Changes','Closed sales','Values & rents'].forEach(g => {
+    h += '<div class="presets"><span class="pl">'+g+'</span>'+PRESETS.map((p, i) => p[0] === g ? '<button class="chip" data-i="'+i+'">'+p[1]+'</button>' : '').join('')+'</div>';
+  });
+  h += '</div><div class="sstat"><span id="sstat">Loading…</span><button class="btn" id="scopy">Copy table as CSV</button></div>'+
+    '<div class="card tbl stbl" id="stbl"></div>';
+  $('scrv').innerHTML = h;
+  $('slv').onclick = e => { const b = e.target.closest('button'); if (!b) return; SCR.level = b.dataset.v;
+    [...$('slv').children].forEach(x => x.classList.toggle('on', x === b)); refreshScr(); };
+  $('stop').onclick = e => { const b = e.target.closest('button'); if (!b) return; SCR.top = +b.dataset.v;
+    [...$('stop').children].forEach(x => x.classList.toggle('on', x === b)); refreshScr(); };
+  $('sst').onchange = () => { SCR.st = $('sst').value; refreshScr(); };
+  $('srent').onchange = () => { SCR.rentOnly = $('srent').checked; refreshScr(); };
+  const num = (id, prop) => $(id).addEventListener('input', () => { const v = $(id).value.trim(); SCR[prop] = v === '' || !isFinite(+v) ? null : +v; refreshScr(); });
+  num('smin', 'minAl'); num('spmin', 'pmin'); num('spmax', 'pmax');
+  $('scrv').querySelectorAll('.presets .chip').forEach(b => b.onclick = () => { const p = PRESETS[+b.dataset.i]; SCR.sort = {k:p[2], dir:p[3]}; refreshScr(); });
+  $('scopy').onclick = copyScrCSV;
+  $('stbl').addEventListener('click', e => {
+    const th = e.target.closest('th[data-k]');
+    if (th){ const k = th.dataset.k; SCR.sort = SCR.sort.k === k ? {k, dir:-SCR.sort.dir} : {k, dir:(k === 'n' || k === 'st') ? 1 : -1}; refreshScr(); return; }
+    if (e.target.closest('a')) return;   // the realtor.com link opens its own tab, not the explorer
+    const tr = e.target.closest('tr[data-id]');
+    if (tr) location.hash = SCR.level+'-'+tr.dataset.id;
+  });
+  SCR.built = true;
+}
+async function refreshScr(){
+  if (!SCR.built) buildScrUI();
+  const my = ++SCR.seq, level = SCR.level, N = S.N;
+  if (!SCR.files[level]) $('sstat').textContent = 'Loading '+SCR_PLURAL[level]+'…';
+  let all;
+  try { all = await scrCalc(level, N); }
+  catch(e){ if (my === SCR.seq){ $('sstat').textContent = 'Could not load screener data ('+e.message+').'; $('stbl').innerHTML = ''; } return; }
+  if (my !== SCR.seq) return;
+  // Closed-sales columns arrive in a second file; show the listing table first, then fill them in.
+  if (!SCR.rsData[level] && !SCR.rsFail[level]){
+    loadScrRs(level).then(() => { if (SCR.level === level && S.mode === 'screener') refreshScr(); }, () => { if (SCR.level === level) refreshScr(); });
+  }
+  if (!SCR.zlData[level] && !SCR.zlFail[level]){
+    loadScrZl(level).then(() => { if (SCR.level === level && S.mode === 'screener') refreshScr(); }, () => { if (SCR.level === level) refreshScr(); });
+  }
+  const f = all.filter(x =>
+    (!SCR.st || x.st === SCR.st) &&
+    (!SCR.minAl || (isNum(x.al) && x.al >= SCR.minAl)) &&
+    (SCR.pmin === null || (isNum(x.p) && x.p >= SCR.pmin)) &&
+    (SCR.pmax === null || (isNum(x.p) && x.p <= SCR.pmax)) &&
+    (!SCR.rentOnly || !SCR.zlData[level] || isNum(x.zr)));
+  const {k, dir} = SCR.sort;
+  const str = k === 'n' || k === 'st';
+  f.sort((a, b) => {
+    const va = a[k], vb = b[k];
+    if (str) return dir*String(va).localeCompare(String(vb)) || a.id.localeCompare(b.id);
+    const na = !isNum(va), nb = !isNum(vb);
+    if (na || nb) return na === nb ? a.n.localeCompare(b.n) : na ? 1 : -1;   // blanks always last
+    return dir*(va-vb) || a.n.localeCompare(b.n);
+  });
+  SCR.total = f.length; SCR.shown = f.slice(0, SCR.top);
+  const M = S.meta.months;
+  $('sstat').innerHTML = 'Showing <b>'+SCR.shown.length.toLocaleString()+'</b> of <b>'+f.length.toLocaleString()+'</b> '+SCR_PLURAL[level]+
+    (SCR.st ? ' in '+esc(SCR.st) : '')+' · '+N+'-month averages · '+mlong(M[M.length-1])+
+    (level === 'zip' ? ' · Redfin zip sales are 3-mo rolling' : '')+
+    (!SCR.rsData[level] && !SCR.rsFail[level] ? ' · <span style="color:var(--muted)">loading closed-sales columns…</span>' : '')+
+    (SCR.rsFail[level] ? ' · <span class="dn">closed-sales columns didn\'t load</span>' : '')+
+    (S.meta.zl && S.meta.zl.last ? ' · Zillow as of '+mlong(S.meta.zl.last.zv) : '')+
+    (!SCR.zlData[level] && !SCR.zlFail[level] ? ' · <span style="color:var(--muted)">loading Zillow columns…</span>' : '')+
+    (SCR.zlFail[level] ? ' · <span class="dn">Zillow columns didn\'t load</span>' : '')+
+    (N > 12 ? '<div class="snote">YoY columns need a trailing average of 12 months or less — the screener keeps the last 24 months.</div>' : '');
+  $('scrv').querySelectorAll('.presets .chip').forEach(b => { const p = PRESETS[+b.dataset.i]; b.classList.toggle('on', p[2] === k && p[3] === dir); });
+  drawScrTable();
+}
+function drawScrTable(){
+  const {k, dir} = SCR.sort, lv = SCR.level, rsReady = !!SCR.rsData[lv], zlReady = !!SCR.zlData[lv];
+  const th = (key, lab) => '<th class="s'+(key === k ? ' on' : '')+'" data-k="'+key+'" title="'+esc((SCR_TIPS[key] ? SCR_TIPS[key]+' ' : '')+'Click to sort; click again to flip.')+'">'+lab+(key === k ? '<span class="ar">'+(dir < 0 ? '▼' : '▲')+'</span>' : '')+'</th>';
+  let h = '<table><thead><tr>'+th('n','Name')+th('st','State')+SCOLS.map(c => th(c[0], c[1])).join('')+'</tr></thead><tbody>';
+  if (!SCR.shown.length) h += '<tr><td colspan="'+(SCOLS.length+2)+'" style="text-align:left;color:var(--muted)">Nothing matches these filters.</td></tr>';
+  SCR.shown.forEach((x, i) => {
+    const nm = lv === 'zip' ? '<b class="zid">'+esc(x.id)+'</b>'+(x.n.startsWith('Zip ') ? '' : esc(x.n)) : esc(x.n);
+    const ru = realtorURL(lv, x.id, x.n, x.st);
+    h += '<tr data-id="'+esc(x.id)+'"><td title="'+esc(x.n)+'"><span class="rk">'+(i+1)+'. </span>'+
+      (ru ? '<a class="rl" href="'+esc(ru)+'" target="_blank" rel="noopener" title="'+esc(realtorTip(lv, x.n))+'" aria-label="Homes for sale on realtor.com">⌂</a>' : '')+nm+'</td><td class="c">'+esc(x.st)+'</td>'+
+      SCOLS.map(([key,, f, d]) => {
+        if (key === 'score'){
+          const sl = scoreLabel(x.score);
+          return '<td>'+(sl ? (x.score > 0 ? '+' : '')+x.score+'<span class="pill sm '+sl[1]+'">'+sl[0]+'</span>' : '–')+'</td>';
+        }
+        if (SCR_RS_COLS.has(key)){
+          if (!rsReady) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">'+(SCR.rsFail[lv] ? 'Closed-sales data didn\'t load' : 'Loading closed sales…')+'</td>' : '';
+          if (!x.hasRS) return key === 'rs_p' ? '<td colspan="'+SCR_RS_COLS.size+'" class="nors">No closed-sales data</td>' : '';
+        }
+        if (SCR_ZL_COLS.has(key)){
+          if (!zlReady) return key === 'zv' ? '<td colspan="'+SCR_ZL_COLS.size+'" class="nors">'+(SCR.zlFail[lv] ? 'Zillow data didn\'t load' : 'Loading Zillow…')+'</td>' : '';
+          if (!x.hasZL) return key === 'zv' ? '<td colspan="'+SCR_ZL_COLS.size+'" class="nors">No Zillow data</td>' : '';
+          if ((key === 'zr' || key === 'zrY' || key === 'zy') && !isNum(x.zr)) return '<td class="nors" title="Zillow covers fewer zips for rents">no rent</td>';
+        }
+        const div = key === 'rs_p' && lv === 'metro' && S.meta.rs && S.meta.rs.div ? S.meta.rs.div[x.id] : null;
+        return '<td'+(d ? ' class="'+cls(x[key], d)+'"' : '')+'>'+f(x[key])+
+          (div ? '<span class="dv" title="'+esc('Closed sales: '+div+' — Redfin reports this metro by division')+'">div.</span>' : '')+'</td>';
+      }).join('')+'</tr>';
+  });
+  $('stbl').innerHTML = h+'</tbody></table>';
+}
+function copyScrCSV(){
+  const N = S.N, M = S.meta.months;
+  const lines = [['rank','level','id','name','state'].concat(SCOLS.map(c => c[0] === 'score' ? 'market_score' : c[0]), ['market_read', 'trailing_months', 'month']).join(',')];
+  SCR.shown.forEach((x, i) => {
+    const sl = scoreLabel(x.score);
+    lines.push([i+1, SCR.level, x.id, csvCell(x.n), x.st].concat(
+      SCOLS.map(([key]) => isNum(x[key]) ? +x[key].toFixed(4) : ''), [sl ? sl[0] : '', N, M[M.length-1]]).join(','));
+  });
+  const txt = lines.join('\n');
+  const ok = () => toast('Copied '+SCR.shown.length+' rows — paste into Excel');
+  const fallback = () => {
+    const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy') ? ok() : toast('Copy blocked by browser'); } catch(e){ toast('Copy blocked by browser'); }
+    ta.remove();
+  };
+  try { navigator.clipboard.writeText(txt).then(ok, fallback); } catch(e){ fallback(); }
+}
+// ---------- realtor.com links ----------
+// Listings can't be shown in this app (no public feed; realtor.com blocks embedding), so each place
+// links to realtor.com's own search. On a phone with the realtor.com app, the link usually opens the app.
+const RDC = 'https://www.realtor.com/realestateandhomes-search/';
+const STATE_NAME = st => { const g = stateGeo(st); return g ? g.n : st; };
+const slug = s => String(s).trim().replace(/[.']/g, '').replace(/\s+/g, '-');
+const HYPHEN_CITIES = ['Winston-Salem', 'Wilkes-Barre', 'Sedro-Woolley', 'Lees-Summit'];
+function placeOf(name){ const i = String(name).lastIndexOf(','); return i < 0 ? String(name) : name.slice(0, i); }
+function realtorURL(type, id, name, st){
+  if (type === 'zip') return /^\d{5}$/.test(id) ? RDC+id : null;
+  if (type === 'state'){
+    if (id === 'DC') return RDC+'Washington_DC';
+    return RDC+slug(STATE_NAME(id));
+  }
+  if (!st) return null;
+  if (type === 'county'){
+    const place = placeOf(name);
+    if (st === 'AK') return RDC+slug(place)+'_AK';                     // already "... Borough" / "... Census Area"
+    if (/ city$/i.test(place)) return RDC+slug(place.replace(/ city$/i, ''))+'_'+st;   // independent cities
+    return RDC+slug(place)+'-'+(st === 'LA' ? 'Parish' : 'County')+'_'+st;
+  }
+  if (type === 'metro'){
+    // "Atlanta-Sandy Springs-Roswell, GA" -> the first-named city, Atlanta_GA
+    let place = placeOf(name);
+    const keep = HYPHEN_CITIES.find(c => place.startsWith(c));
+    place = keep || place.split(/-+/)[0];
+    return RDC+slug(place)+'_'+st;
+  }
+  return null;
+}
+function realtorTip(type, name){
+  if (type === 'metro') return 'Homes for sale in '+placeOf(name).split(/-+/)[0]+' on realtor.com (its largest city — realtor.com has no metro search)';
+  return 'Homes for sale in '+(type === 'state' ? name : placeOf(name) || name)+' on realtor.com';
+}
+
+// ---------- ballpark value ----------
+// A zip-wide ballpark for one home from area averages; not a valuation. The address is sent to the
+// US Census geocoder (JSONP, since it sends no CORS header) only to find its zip and county.
+const VAL = {built:false, last:null, seq:0, found:null};
+function censusGeocode(address){
+  return new Promise((resolve, reject) => {
+    const cb = 'zmeGeo'+Date.now()+Math.floor(Math.random()*1e6), sc = document.createElement('script');
+    const done = () => { delete window[cb]; sc.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); reject(new Error('the Census address lookup timed out')); }, 15000);
+    window[cb] = j => {
+      done();
+      const m = j && j.result && j.result.addressMatches && j.result.addressMatches[0];
+      if (!m) return reject(new Error('the Census lookup couldn\'t find that address — check the spelling, or enter the zip instead'));
+      const geo = m.geographies || {}, pick = (re) => { const k = Object.keys(geo).find(x => re.test(x)); return k && geo[k][0] ? geo[k][0].GEOID : null; };
+      resolve({matched:m.matchedAddress, zcta:pick(/ZIP Code Tabulation/i), county:pick(/^Counties$/i), zip:(m.addressComponents || {}).zip || null});
+    };
+    sc.onerror = () => { done(); reject(new Error('the Census address lookup couldn\'t be reached')); };
+    sc.src = 'https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?'+new URLSearchParams({
+      address, benchmark:'Public_AR_Current', vintage:'Current_Current', layers:'2,82', format:'jsonp', callback:cb});
+    document.head.appendChild(sc);
+  });
+}
+function buildValUI(){
+  $('valv').innerHTML = '<div class="card controls" style="margin-top:0;display:block">'+
+    '<h2 style="margin-bottom:6px">Ballpark value'+tipBtn('ballpark')+'</h2>'+
+    '<div class="sub" style="margin:0 0 12px">A rough value range for one home from its zip\'s recent sales, current listings and Zillow\'s typical value. Only the zip and the size matter; the range updates as you type. Uses the trailing-average box above.</div>'+
+    '<div class="vform">'+
+      '<div class="ctl zip"><label class="l" for="vzip">Zip</label><input type="text" id="vzip" inputmode="numeric" autocomplete="postal-code" placeholder="30084"></div>'+
+      '<div class="ctl sq"><label class="l" for="vsq">Home size (sq ft)</label><input type="number" id="vsq" min="200" max="30000" step="10" inputmode="numeric" placeholder="1,850"></div>'+
+    '</div>'+
+    '<div class="vpriv"><a href="#" id="vlook" class="vlink">Don\'t know the zip? Look it up by address</a></div>'+
+    '<form class="vform" id="vaddrrow" style="display:none;margin-top:10px" autocomplete="off">'+
+      '<div class="ctl addr"><label class="l" for="vaddr">Street address</label><input type="text" id="vaddr" placeholder="e.g. 2100 Main St, Tucker, GA"></div>'+
+      '<div class="ctl"><button class="go" type="submit">Find zip</button></div>'+
+      '<div class="vpriv" style="flex-basis:100%;margin-top:0">The address is sent to the US Census Bureau\'s public geocoder only to find its zip and county; it isn\'t stored or put in the page link.</div>'+
+    '</form>'+
+    '</div><div id="vres" class="vres"></div>';
+  let t = null;
+  const later = () => { clearTimeout(t); t = setTimeout(runBallpark, 300); };
+  $('vzip').addEventListener('input', () => {
+    // A pasted address or "GA 30084-1234": keep its zip (the last 5-digit group).
+    const v = $('vzip').value, m = v.match(/\b\d{5}\b/g);
+    if (/[^\d\s]/.test(v) && m) $('vzip').value = m[m.length-1];
+    VAL.found = null;   // a typed zip replaces a looked-up one
+    later();
+  });
+  $('vsq').addEventListener('input', later);
+  $('vlook').addEventListener('click', e => { e.preventDefault(); const r = $('vaddrrow'); r.style.display = r.style.display === 'none' ? '' : 'none'; if (r.style.display === '') $('vaddr').focus(); });
+  $('vaddrrow').addEventListener('submit', e => { e.preventDefault(); lookupAddress(); });
+  VAL.built = true;
+  $('vres').innerHTML = '<div class="card empty" style="padding:28px 20px">Enter a zip and the home\'s size to see a ballpark.</div>';
+}
+// Trailing average of a series at an index (null when the place has none).
+function valAt(g, k, i){ return g ? T(g,k)[i] : null; }
+async function lookupAddress(){
+  const addr = $('vaddr').value.trim(), out = $('vres');
+  if (!addr) return;
+  out.innerHTML = '<div class="card loading">Looking up the address…</div>';
+  try {
+    const r = await censusGeocode(addr);
+    // Prefer the zip area (ZCTA) we have data for; building-only zips like 10118 fall back to it.
+    const zip = [r.zcta, r.zip].find(z => z && idxRow('zip', z)) || r.zcta || r.zip;
+    VAL.found = {zip, county:r.county, matched:r.matched};
+    $('vzip').value = zip || '';
+    runBallpark();
+  } catch(e){ out.innerHTML = '<div class="card vwarn">Couldn\'t find that address: '+esc(e.message)+'.</div>'; }
+}
+async function runBallpark(){
+  const my = ++VAL.seq, zip = $('vzip').value.trim(), sq = +$('vsq').value, out = $('vres');
+  if (!/^\d{5}$/.test(zip) || !(sq >= 200 && sq <= 30000)){
+    VAL.last = null;
+    out.innerHTML = '<div class="card empty" style="padding:28px 20px">'+
+      (!/^\d{5}$/.test(zip) ? 'Enter a 5-digit zip' : 'Enter the home\'s size (200–30,000 sq ft)')+' to see a ballpark.</div>';
+    return;
+  }
+  const found = VAL.found && VAL.found.zip === zip ? VAL.found : null;
+  try {
+    const g = idxRow('zip', zip) ? await getGeo('zip', zip) : null;
+    let county = found ? found.county : null;
+    if (!county){ try { const z = await loadZ2C(); county = z[zip] ? z[zip][0] : null; } catch(e){} }
+    const cg = county && idxRow('county', county) ? await getGeo('county', county) : null;
+    if (my !== VAL.seq) return;
+    if (!g && !cg){
+      out.innerHTML = '<div class="card vwarn">No market data for zip '+esc(zip)+'. It may be a PO-box or single-building zip — try the address lookup, which finds the surrounding zip area.</div>';
+      return;
+    }
+    VAL.last = {g, cg, sq, matched:found ? found.matched : null, zip};
+    drawBallpark();
+  } catch(e){ if (my === VAL.seq) out.innerHTML = '<div class="card vwarn">Couldn\'t get a ballpark: '+esc(e.message)+'.</div>'; }
+}
+function drawBallpark(){
+  if (!VAL.last) return;
+  const {g, cg, sq, matched, zip} = VAL.last, N = S.N, M = S.meta.months, li = M.length-1, zi = zli();
+  const where = g ? 'zip '+g.id+' ('+g.n+')' : cg.n;
+  // one anchor = {label, value, how, from}; each input comes from the zip, else the county
+  const pickVal = (k, i) => { const z = valAt(g, k, i); if (isNum(z)) return [z, g ? 'zip' : 'county']; const c = valAt(cg, k, i); return isNum(c) ? [c, 'county'] : [null, null]; };
+  const anchors = [];
+  { const [psf, src] = pickVal('rs_f', li);
+    if (isNum(psf)) anchors.push({label:'Recent sales', value:sq*psf, src,
+      how:fmt.num(sq)+' sq ft × '+fmt.psf(psf)+'/sq ft — Redfin median <b>sale</b> price per sq ft, '+N+'M avg'+(src === 'zip' ? ' (zip figures are 3-mo rolling)' : '')+'.'}); }
+  { const [lpsf, s1] = pickVal('f', li), [stl, s2] = pickVal('rs_sl', li);
+    if (isNum(lpsf) && isNum(stl)) anchors.push({label:'Current listings, at what homes sell for', value:sq*lpsf*stl, src:s1 === 'county' || s2 === 'county' ? 'county' : 'zip',
+      how:fmt.num(sq)+' sq ft × '+fmt.psf(lpsf)+'/sq ft asking (realtor.com, '+N+'M avg) × '+(stl*100).toFixed(1)+'% sale-to-list (Redfin).'}); }
+  { const [zv, s1] = pickVal('zv', zi), [msq, s2] = pickVal('s', li);
+    if (isNum(zv) && isNum(msq)) anchors.push({label:'Zillow typical home, scaled to size', value:zv*sq/msq, src:s1 === 'county' || s2 === 'county' ? 'county' : 'zip',
+      how:fmt.usd(zv)+' typical value (Zillow, '+mlong(M[zi])+') × '+fmt.num(sq)+' ÷ '+fmt.num(msq)+' sq ft (median listing size).'}); }
+  const out = $('vres');
+  if (!anchors.length){ out.innerHTML = '<div class="card vwarn">Not enough price data for '+esc(where)+' to give a ballpark.</div>'; return; }
+  const vals = anchors.map(a => a.value).sort((a, b) => a-b);
+  const mid = vals.length % 2 ? vals[(vals.length-1)/2] : (vals[vals.length/2-1]+vals[vals.length/2])/2;
+  // the spread of the anchors, never narrower than ±5% (±10% with a single anchor)
+  const pad = vals.length > 1 ? 0.05 : 0.10;
+  const lo = Math.min(vals[0], mid*(1-pad)), hi = Math.max(vals[vals.length-1], mid*(1+pad));
+  const r5 = v => Math.round(v/5000)*5000;
+  const warns = [];
+  const msq = valAt(g, 's', li) || valAt(cg, 's', li);
+  if (isNum(msq) && (sq > msq*2 || sq < msq*0.5)) warns.push('This home is '+(sq > msq ? 'much larger' : 'much smaller')+' than the typical listing here ('+fmt.num(msq)+' sq ft); per-sq-ft values change with size, so the range is less reliable.');
+  if (g){
+    const al = T(g,'al')[li], hs = T(g,'rs_n')[li];
+    if (isNum(al) && al < 10) warns.push('Thin market: under 10 active listings on average, so the zip\'s figures can swing month to month.');
+    if (g.rs && isNum(hs) && hs < 5) warns.push('Few recent sales in this zip (under 5 a month), so the sales-based figure is less reliable.');
+  } else warns.push('No zip-level data matched, so every figure here is county-wide.');
+  if (anchors.some(a => a.src === 'county') && g) warns.push('Where the zip lacked a figure, the county\'s was used (marked).');
+  const spread = (hi-lo)/mid;
+  out.innerHTML = '<div class="card">'+
+    '<div class="sub" style="margin:0">'+(matched ? 'Address matched: <b>'+esc(matched)+'</b> · ' : '')+esc(where)+' · '+fmt.num(sq)+' sq ft · '+N+'-month averages</div>'+
+    '<div class="vrange">'+fmt.usd(r5(lo))+' – '+fmt.usd(r5(hi))+'</div>'+
+    '<div class="vmid">Midpoint '+fmt.usd(r5(mid))+' · range width ±'+Math.round(spread*50)+'% · '+anchors.length+' of 3 methods available</div>'+
+    warns.map(w => '<div class="vwarn">'+esc(w)+'</div>').join('')+
+    '<div class="vanch">'+anchors.map(a => '<div class="card kpi"><div class="lab">'+esc(a.label)+'</div><div class="val">'+fmt.usd(a.value)+'</div><div class="how">'+a.how+'</div>'+
+      (a.src === 'county' ? '<div class="src">Uses county-wide figures</div>' : '')+'</div>').join('')+'</div>'+
+    '<div class="vcav"><b>This is a ballpark, not an appraisal.</b> It knows only the size and the area, so condition, updates, lot, view, beds and baths, and the exact street can move a home\'s value by 15–25% or more. For a price you\'d act on, get comparable sales from an agent or an appraisal.</div>'+
+    '<div class="vbtns">'+(g ? '<button class="btn" id="vopen">Open zip '+esc(g.id)+' in Explorer</button>' : '')+
+      (g && realtorURL('zip', g.id, g.n, g.st) ? '<a class="rbtn" href="'+esc(realtorURL('zip', g.id, g.n, g.st))+'" target="_blank" rel="noopener">Homes for sale in '+esc(g.id)+' ↗</a>' : '')+'</div>'+
+    '</div>';
+  if (g) $('vopen').onclick = () => { location.hash = 'zip-'+g.id; };
+}
+
+// ---------- modes ----------
+const isScrHash = () => location.hash === '#screener';
+const isValHash = () => location.hash === '#value';
+function setMode(m){
+  const was = S.mode;
+  S.mode = m;
+  document.body.classList.toggle('scrmode', m === 'screener');
+  document.body.classList.toggle('valmode', m === 'value');
+  [...$('mode').children].forEach(b => b.classList.toggle('on', b.dataset.v === m));
+  if (m === 'screener'){ refreshScr(); return; }
+  if (m === 'value'){ if (!VAL.built) buildValUI(); return; }
+  if ((was === 'screener' || was === 'value') && S.cur){
+    if (S.dirty){ S.dirty = false; render(); }
+    else if (S.mapCard) setTimeout(() => S.mapCard.map.invalidateSize(), 0);
+  }
+}
+
+function toast(t){ const e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(e._t); e._t = setTimeout(() => e.style.display = 'none', 2600); }
+
+// ---------- notes ----------
+function renderNotes(){
+  const M = S.meta.months;
+  $('notes').innerHTML =
+   '<p><b>Version v07.</b> <b>About the data.</b> Source: realtor.com Inventory Core Metrics (monthly History files), '+mlong(M[0])+' – '+mlong(M[M.length-1])+', built '+esc(S.meta.built.slice(0,10))+'. '+
+   'These are <b>listing</b> metrics — asking prices, active inventory, pending contracts — not closed sales.</p>'+
+   '<p><b>Trailing average rule.</b> Each point is the mean of the non-null monthly values in the last N months. A point is shown only if (a) N months of history exist and (b) at least half of the window (N÷2, rounded up) has data — so long windows start later and sparse places can have gaps.</p>'+
+   '<p><b>Benchmarks</b> are the actual realtor.com figures for the parent geography — the state for a zip, county or metro (a multi-state metro uses its first-listed state), and the US for a state — smoothed with the same trailing window. They are not medians of zips.</p>'+
+   '<p><b>Market read</b> scores six signals with N-month trailing averages: days on market, price-reduced share and pending ratio vs the parent geography; active inventory, days on market and $/sq ft vs a year ago. Total of +2 or more = seller-leaning, −2 or less = buyer-leaning, otherwise balanced.</p>'+
+   '<p><b>Colors on tiles</b>: green = the change points to a tighter / stronger market for sellers, red = softer. Shares change in percentage points. Median sq ft is not colored.</p>'+
+   '<p><b>Percentile ranks</b> compare a zip or county with the others in its state for the latest month (100 = highest value, not necessarily "best"). For zips without a name in the source, the state is inferred from the first three digits.</p>'+
+   '<p><b>Mortgage Distress</b> shows the share of mortgages 30–89 days and 90+ days delinquent, from the CFPB Mortgage Performance Trends data (National Mortgage Database). It is <b>county-level</b>, not zip-level: each zip uses the county holding the largest share of its land area (Census 2020 zip-area-to-county file). CFPB only publishes counties with at least 1,000 sampled mortgages; elsewhere the panel says so and shows the state series. CFPB data are published with a lag of several months.</p>'+
+   (S.meta.rs ? '<p><b>Closed-sales data: Redfin, a national real estate brokerage</b> (Redfin Data Center, Housing Market Tracker, all residential, not seasonally adjusted), '+
+     (S.meta.rs.first ? mlong(S.meta.rs.first)+' – '+mlong(S.meta.rs.last) : '')+'. Listing data: realtor.com, '+mlong(M[0])+' – '+mlong(M[M.length-1])+'. '+
+     'Sale prices are recorded closing prices; list prices are asking prices, so the two differ by design. Redfin\'s zip figures are <b>3-month rolling</b> (each month covers that month and the two before it); everything else is monthly. '+
+     'Sale prices aren\'t public record in some non-disclosure states (e.g. TX, UT), so Redfin\'s coverage there comes from MLS data and is thinner; Redfin publishes nothing for Louisiana. '+
+     'Redfin reports the 11 largest metros only by their metro divisions; each of those metros shows the division containing its principal city, labelled "Closed sales: &lt;division&gt;" (divisions are never averaged together). Counties are matched by name, metros by principal city. '+
+     'With Redfin data, the market read adds two signals — months of supply (under 4 → +1, over 6 → −1) and sale-to-list (100%+ → +1, under 97% → −1) — and scores out of ±8; without it, out of ±6. The screener\'s market score uses the same signals.</p>' : '')+
+   (S.meta.zl ? '<p><b>Home values and rents: Zillow Research (ZHVI, ZORI).</b> ZHVI (typical home value, middle tier of single-family homes and condos, smoothed and seasonally adjusted) '+
+     (S.meta.zl.first.zv ? mlong(S.meta.zl.first.zv)+' – '+mlong(S.meta.zl.last.zv) : '')+'; ZORI (typical observed rent, all homes plus multifamily, smoothed) '+
+     (S.meta.zl.first.zr ? mlong(S.meta.zl.first.zr)+' – '+mlong(S.meta.zl.last.zr) : '')+'. Zillow posts mid-month, so its latest month can trail the listing data; tiles show Zillow\'s latest month. '+
+     'Gross rent yield = ZORI × 12 ÷ ZHVI; price-to-rent = ZHVI ÷ (ZORI × 12); list-to-value = realtor.com median list price ÷ ZHVI — all computed in your browser. ZORI covers far fewer zips than ZHVI, and Zillow publishes no state-level rents. '+
+     'Zillow\'s figures are smoothed and lag turning points, so they don\'t feed the market read.</p>' : '')+
+   '<p><b>Ballpark value</b> gives a rough range for one home from three area figures: size × Redfin median sale price per sq ft; size × realtor.com asking price per sq ft × Redfin sale-to-list; and Zillow\'s typical home value × (size ÷ median listing size). The range spans those figures (at least ±5%, or ±10% when only one is available), using the zip\'s figures, or the county\'s where the zip has none. Addresses are looked up with the US Census Bureau geocoder only to find the zip and county. It is not an appraisal.</p>'+
+   '<p><b>Screener</b> ranks every state, metro, county or zip on the same N-month trailing averages. Each YoY compares the trailing average with the same window 12 months earlier, so it matches the explorer tiles. The screener keeps the last 24 months, so YoY figures need a window of 12 months or less. Only places with active listings in the last 3 months are included. Market score uses the market read\'s six signals, benchmarked against the state for zips and counties and against the US for states and metros. A metro\'s state is its first-listed state. Price-reduced count is the number of active listings with a price cut that month.</p>'+
+   '<p><b>Location map</b> outlines come from the US Census TIGERweb service: 2020 zip-code tabulation areas (ZCTAs) for zips, and current county, metro/micro area and state boundaries. ZCTAs approximate USPS zips; PO-box and single-building zips have no area, so the map shows the surrounding county or state. The dashed outline is context — a zip\'s main county, or the state of a county or metro. Zoom in and every zip in view is outlined in teal; click any spot to open the zip, county, metro or state there. After a click, the scroll wheel zooms the map. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>'+
+   '<p><b>⚑ / hollow points</b> mark months realtor.com flagged with quality_flag = 1 — read those with caution. <b>Thin market</b> means fewer than 10 active listings on the trailing average; lean on the trailing average there.</p>';
+}
+
+// ---------- wiring ----------
+attachSearch($('q'), $('res'), (t,id) => select(t,id));
+attachSearch($('cq'), $('cres'), (t,id) => selectCmp(t,id));
+$('usbtn').addEventListener('click', () => select('us','us'));
+$('cx').addEventListener('click', () => selectCmp(null));
+$('cq').addEventListener('input', () => { if (!$('cq').value.trim() && S.cmp) selectCmp(null); });
+$('n').addEventListener('input', () => {
+  const v = Math.round(+$('n').value);
+  if (!(v >= 1 && v <= 24 && v !== S.N)) return;
+  S.N = v;
+  if (S.mode === 'screener'){ refreshScr(); if (S.cur) S.dirty = true; }   // explorer re-renders when shown again
+  else if (S.mode === 'value'){ drawBallpark(); if (S.cur) S.dirty = true; }
+  else if (S.cur) render();
+});
+$('mode').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.dataset.v === S.mode) return;
+  if (b.dataset.v === 'screener'){ location.hash = 'screener'; return; }
+  if (b.dataset.v === 'value'){ location.hash = 'value'; return; }
+  if (S.cur) location.hash = geoKey(S.cur)+(S.cmp ? '&vs='+geoKey(S.cmp) : '');
+  else { try { history.pushState(null, '', location.pathname+location.search); } catch(e){} setMode('explorer'); }
+});
+$('n').addEventListener('blur', () => { $('n').value = S.N; });
+$('rng').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; S.win = +b.dataset.v;
+  [...$('rng').children].forEach(x => x.classList.toggle('on', x === b)); if (S.cur) drawCharts(S.cur, benchGeo(S.cur)); });
+$('bm').addEventListener('change', () => { S.bm = $('bm').value; if (S.cur) render(); });
+$('raw').addEventListener('change', () => { S.raw = $('raw').checked; if (S.cur) drawCharts(S.cur, benchGeo(S.cur)); });
+
+async function openFromHash(){
+  const {a, b} = parseHash();
+  S.cmp = null;
+  if (b){ try { S.cmp = await getGeo(b[0], b[1]); } catch(e){ S.cmp = null; } }
+  setInput($('cq'), S.cmp); $('cx').style.display = S.cmp ? '' : 'none';
+  if (a) { await select(a[0], a[1]); window.scrollTo(0, 0); return true; }
+  return false;
+}
+function emptyState(){
+  const picks = [['zip','30084'],['county','13121'],['metro','12060'],['state','GA'],['us','us']];
+  let h = '<div class="card empty"><h2>Pick a place to start</h2><div>Search a zip, town, county, metro or state — or tap the US button. Every chart shows monthly values plus your trailing average.</div><div class="chips">';
+  picks.forEach(([t,id]) => { const r = S.meta.idx.find(x => x[0] === t && x[1] === id); if (r) h += '<button class="chip" data-t="'+t+'" data-id="'+id+'">'+TYPE[t]+' · '+esc(r[2])+'</button>'; });
+  $('main').innerHTML = h+'</div></div>';
+  $('main').querySelectorAll('.chip').forEach(b => b.onclick = () => select(b.dataset.t, b.dataset.id));
+}
+
+(async function init(){
+  if (typeof Chart === 'undefined'){ $('main').innerHTML = '<div class="card empty"><h2>Could not load the chart library</h2><div>Check your connection and reload.</div></div>'; return; }
+  Chart.defaults.font.family = '"DM Sans", system-ui, sans-serif';
+  Chart.defaults.color = C.tick;
+  try {
+    S.meta = await getJSON('d/meta.json');
+    const st = await loadShard('d/states.json');
+    await Promise.all(Object.keys(st).map(k => getGeo('state', k)));
+    if (S.meta.hasUS) S.usGeo = await getGeo('us','us');
+  } catch(e){ $('main').innerHTML = '<div class="card empty"><h2>Could not load data files</h2><div>'+esc(e.message)+'</div></div>'; return; }
+  const M = S.meta.months;
+  S.counts = {}; S.meta.idx.forEach(r => S.counts[r[0]] = (S.counts[r[0]] || 0)+1);
+  $('cov').textContent = 'realtor.com listing data · '+(S.counts.zip || 0).toLocaleString()+' zips · '+(S.counts.county || 0).toLocaleString()+' counties · '+(S.counts.metro || 0).toLocaleString()+' metros · '+mlong(M[0])+' – '+mlong(M[M.length-1]);
+  buildSearch(); renderNotes();
+  if (isScrHash()){ emptyState(); setMode('screener'); return; }
+  if (isValHash()){ emptyState(); setMode('value'); return; }
+  S.mode = 'explorer';
+  if (!(await openFromHash())) emptyState();
+})();
+window.addEventListener('hashchange', async () => {
+  if (!S.meta) return;
+  if (isScrHash()){ setMode('screener'); return; }
+  if (isValHash()){ setMode('value'); return; }
+  const fromScr = S.mode === 'screener' || S.mode === 'value';
+  setMode('explorer');
+  if (fromScr) window.scrollTo(0, 0);
+  const {a, b} = parseHash();
+  const same = (g, k) => g && k && g.type === k[0] && g.id === k[1];
+  if (a && (!same(S.cur, a) || !!b !== !!S.cmp || (b && !same(S.cmp, b)))) openFromHash();
+});
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
